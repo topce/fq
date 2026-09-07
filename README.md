@@ -6,6 +6,22 @@ dialog (⌥⌘⎋): no chance to save work, helpers taken down with the app.
 
 It is written in OCaml (stdlib + `unix` only, no third-party dependencies).
 
+## Installation
+
+macOS only. Install via Homebrew from the
+[tap](https://github.com/topce/homebrew-fq) (single command, no manual tap):
+
+```sh
+brew install topce/fq/fq
+```
+
+The formula builds from source with Homebrew's ocaml + dune — OCaml stdlib
++ `unix` only, so the build takes seconds.
+
+> **Name clash:** an unrelated message broker is also published as `fq` in
+> homebrew-core, so plain `brew install fq` installs *that* tool. Always use
+> the fully qualified `brew install topce/fq/fq`.
+
 ## Usage
 
 ```
