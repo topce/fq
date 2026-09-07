@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name fq)
+ (package fq)
+ (libraries fq unix))
