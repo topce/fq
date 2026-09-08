@@ -47,6 +47,14 @@ val match_name : app list -> string -> name_match
 (** [find_pid apps pid] returns the application with the given pid, if any. *)
 val find_pid : app list -> int -> app option
 
+(** Parse a comma-separated list of positive integers ("1, 3, 5") — the
+    1-based indexes shown next to applications in the interactive picker.
+    Optional whitespace around each number is allowed. Returns [None] on
+    empty input, empty tokens, or any token that is not a positive
+    integer, so a typo invalidates the whole input rather than
+    half-quitting a selection. *)
+val parse_index_list : string -> int list option
+
 (** Parent pid of another process, via [ps(1)]; [None] when the process is
     gone or [ps] fails. *)
 val parent_pid_of : int -> int option

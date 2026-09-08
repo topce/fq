@@ -90,6 +90,23 @@ let () =
    | None -> check "find_pid: by pid" false);
   check "find_pid: missing pid -> None" (find_pid sample 99999 = None);
 
+  (* Comma-separated number lists (interactive multi-selection). *)
+  check "parse_index_list: single number"
+    (Fq.parse_index_list "3" = Some [ 3 ]);
+  check "parse_index_list: comma-separated, spaces tolerated"
+    (Fq.parse_index_list "1, 3,5" = Some [ 1; 3; 5 ]);
+  check "parse_index_list: order preserved"
+    (Fq.parse_index_list "3,1" = Some [ 3; 1 ]);
+  check "parse_index_list: empty / blank -> None"
+    (Fq.parse_index_list "" = None && Fq.parse_index_list "   " = None);
+  check "parse_index_list: empty tokens -> None"
+    (Fq.parse_index_list "1," = None && Fq.parse_index_list ",1" = None
+    && Fq.parse_index_list "1,,2" = None);
+  check "parse_index_list: non-numeric token -> None"
+    (Fq.parse_index_list "1,x" = None && Fq.parse_index_list "abc" = None);
+  check "parse_index_list: zero / negatives rejected"
+    (Fq.parse_index_list "0" = None && Fq.parse_index_list "-1,2" = None);
+
   (* Process-tree helpers: self-referential smoke tests using live ps(1) on
      our own pid — a process is always its parent's child, so these are
      deterministic without hard-coding any PID. *)

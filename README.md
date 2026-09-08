@@ -27,7 +27,9 @@ The formula builds from source with Homebrew's ocaml + dune — OCaml stdlib
 ```
 fq [OPTIONS] [APP]
 
-  fq                       pick an application interactively
+  fq                       pick application(s) interactively: type a number,
+                           or comma-separated numbers (e.g. 1,3,5) to force
+                           quit several at once
   fq "Safari"              force quit Safari (asks for confirmation)
   fq -y firefox            non-interactive force quit
   fq --list                list running apps as "pid name"
@@ -39,10 +41,22 @@ fq [OPTIONS] [APP]
   fq --others -y           same, non-interactive
   fq --others -f           ... but also quit the protected system ones
   fq -p 1234               force quit by PID
+  fq -s "Safari"           force quit Safari, then put the Mac to sleep
+  fq --all -y -s           force quit everything (this terminal included),
+                           then put the Mac to sleep
 ```
 
 Every force-quit is confirmed before it happens (`fq -y` skips the
 confirmation).
+
+In the interactive picker, instead of one number you can type a
+comma-separated list of numbers — `1,3,5` — to force quit those applications
+in one go. Duplicates (`1,1,3`) are ignored and the batch is confirmed once
+before anything is killed.
+
+Prompts take single keys on a real terminal: Return submits, and **Escape**
+cancels immediately — no need to press Return afterwards (when stdin is
+redirected, whole lines are read instead, so scripting is unchanged).
 
 ## Options
 
@@ -52,6 +66,7 @@ confirmation).
 | `-a`, `--all` | force quit every running application (protected system ones are skipped — see below) |
 | `-o`, `--others` | force quit every running application except the application running this terminal and the protected system ones |
 | `-p`, `--pid PID` | force quit the process with this PID |
+| `-s`, `--sleep` | after force-quitting, also put the Mac to sleep (`pmset sleepnow`) |
 | `-y`, `--yes` | force quit without asking for confirmation |
 | `-f`, `--force` | also allow force-quitting protected system applications |
 | `-b`, `--backend BACKEND` | enumeration backend: `lsappinfo` (default) or `osascript` |
@@ -77,6 +92,19 @@ was launched in. That app is found by walking the process tree upward from
 fq (`ps`), so killing it (which would also kill your session) is never done,
 even with `-f/--force`. `--all` has no such safeguard: from a terminal it
 force-quits the terminal too.
+
+## Put the Mac to sleep (-s/--sleep)
+
+`-s/--sleep` puts the Mac to sleep (`pmset sleepnow`) once the requested
+force-quits have all succeeded — handy before walking away from the machine.
+The confirmation asks for both together ("… and put the Mac to sleep?"), and
+if any force-quit fails the Mac is *not* put to sleep and fq exits 1.
+
+When the force-quit list includes the application running this terminal
+(`--all`, or picking the terminal itself in the interactive list), that app
+is force-quit last: a fully detached helper is armed just beforehand and
+performs the sleep, so the Mac still goes to sleep even if killing the
+terminal takes fq down with it.
 
 ## Exit status
 
@@ -128,7 +156,7 @@ dune install          # install into ~/.opam/.../bin (after opam install .)
 ## Notes
 
 * Force-quitting is destructive by design (that is the point). Use `-y` only
-  when you mean it; interactive, name/pid, and `--all` modes confirm by
-default.
+  when you mean it — interactive, name/pid, and `--all` modes confirm before
+  anything is killed.
 * Only your own user's processes can be killed without `sudo`.
 * macOS-only (relies on `lsappinfo`, `ps`, `uname`).

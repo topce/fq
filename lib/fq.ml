@@ -287,6 +287,31 @@ let match_name apps name =
 let find_pid apps pid = List.find_opt (fun a -> a.pid = pid) apps
 
 (* ------------------------------------------------------------------ *)
+(* Comma-separated number lists (interactive multi-selection)         *)
+(* ------------------------------------------------------------------ *)
+
+(* Parse a comma-separated list of positive integers — the 1-based indexes
+   printed next to the applications in the interactive picker. Optional
+   whitespace around each number is allowed ("1, 3, 5"). Returns None for
+   empty input, empty tokens, or any token that is not a positive integer,
+   so a typo invalidates the whole input rather than half-quitting a
+   selection. *)
+let parse_index_list s =
+  if String.trim s = "" then None
+  else
+    let tokens = String.split_on_char ',' s in
+    let nums =
+      List.map
+        (fun t ->
+          match int_of_string_opt (String.trim t) with
+          | Some k when k > 0 -> Some k
+          | _ -> None)
+        tokens
+    in
+    if List.exists (fun x -> x = None) nums then None
+    else Some (List.map Option.get nums)
+
+(* ------------------------------------------------------------------ *)
 (* Force quitting                                                     *)
 (* ------------------------------------------------------------------ *)
 
