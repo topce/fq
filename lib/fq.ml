@@ -6,7 +6,7 @@
    for apps launched by LaunchServices) the whole group is killed so that
    helper processes of multi-process applications (browsers, …) die too. *)
 
-let version = "0.1.0"
+let version = "0.2.0"
 
 type app = {
   name : string;           (* display name, e.g. "Safari" *)
