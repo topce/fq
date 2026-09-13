@@ -42,6 +42,9 @@ fq [OPTIONS] [APP]
   fq --others -f           ... but also quit the protected system ones
   fq -p 1234               force quit by PID
   fq -s "Safari"           force quit Safari, then put the Mac to sleep
+  fq --others -y -s        force quit every other app, then put the Mac to
+                           sleep — this terminal keeps running, and the Mac is
+                           put to sleep even if there was nothing else to quit
   fq --all -y -s           force quit everything (this terminal included),
                            then put the Mac to sleep
 ```
@@ -66,7 +69,7 @@ redirected, whole lines are read instead, so scripting is unchanged).
 | `-a`, `--all` | force quit every running application (protected system ones are skipped — see below) |
 | `-o`, `--others` | force quit every running application except the application running this terminal and the protected system ones |
 | `-p`, `--pid PID` | force quit the process with this PID |
-| `-s`, `--sleep` | after force-quitting, also put the Mac to sleep (`pmset sleepnow`) |
+| `-s`, `--sleep` | after force-quitting, also put the Mac to sleep (`pmset sleepnow`) — also when there was nothing to quit |
 | `-y`, `--yes` | force quit without asking for confirmation |
 | `-f`, `--force` | also allow force-quitting protected system applications |
 | `-b`, `--backend BACKEND` | enumeration backend: `lsappinfo` (default) or `osascript` |
@@ -99,6 +102,13 @@ force-quits the terminal too.
 force-quits have all succeeded — handy before walking away from the machine.
 The confirmation asks for both together ("… and put the Mac to sleep?"), and
 if any force-quit fails the Mac is *not* put to sleep and fq exits 1.
+
+The sleep is a step of its own, so it happens even when there was nothing to
+quit: `fq --others -y -s` from a terminal whose application is protected (or
+is the only thing left running) still puts the Mac to sleep after reporting
+that there was nothing else to quit. Without `-y`, and with nothing to quit,
+fq asks about the sleep on its own ("Put the Mac to sleep? [y/N]") rather
+than asking to force-quit zero applications.
 
 When the force-quit list includes the application running this terminal
 (`--all`, or picking the terminal itself in the interactive list), that app
@@ -140,9 +150,14 @@ Requires OCaml ≥ 5 and dune.
 ```
 dune build            # build the fq executable (bin/main.exe)
 dune exec fq -- -l    # run it
-dune runtest          # unit tests (parsers, name matching)
+dune runtest          # unit tests (parsers, name matching) plus the
+                      # end-to-end -s/--sleep checks
 dune install          # install into ~/.opam/.../bin (after opam install .)
 ```
+
+`dune runtest` never quits a real application or puts the Mac to sleep: the
+sleep checks drive the built executable with a synthetic application list
+(`FQ_APPS_FILE`) and a stub sleep command (`FQ_SLEEP_CMD`).
 
 ## Layout
 
@@ -152,6 +167,8 @@ dune install          # install into ~/.opam/.../bin (after opam install .)
 * `bin/main.ml` — CLI: arg parsing, interactive picker, confirmation, output.
 * `test/test_fq.ml` — unit tests (fixture-driven parsers plus
   self-referential process-tree checks that need no fixed PIDs).
+* `test/test_sleep.sh` — end-to-end `-s/--sleep` checks against the built
+  executable, using a synthetic application list and a stub sleep command.
 
 ## Notes
 

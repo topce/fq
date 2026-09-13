@@ -1,3 +1,13 @@
 (test
  (name test_fq)
  (libraries fq unix))
+
+; End-to-end checks for -s/--sleep. The stub sleep command keeps the Mac
+; awake; the test asserts fq asks for the sleep at the right moments.
+(rule
+ (alias runtest)
+ (deps
+  test_sleep.sh
+  %{exe:../bin/main.exe})
+ (action
+  (run sh %{dep:test_sleep.sh} %{exe:../bin/main.exe})))
