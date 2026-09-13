@@ -89,12 +89,17 @@ picker marks it `(protected)`, but it cannot be force-quit without `-f`.
 
 ## This terminal is never killed
 
-`--others` force-quits every running application except the protected ones and
-the application running fq itself — the GUI app that hosts the terminal fq
+`--others` force-quits every running application except the protected ones
+and the application running fq itself — the GUI app that hosts the terminal fq
 was launched in. That app is found by walking the process tree upward from
 fq (`ps`), so killing it (which would also kill your session) is never done,
-even with `-f/--force`. `--all` has no such safeguard: from a terminal it
-force-quits the terminal too.
+even with `-f/--force`. fq's own process group is protected in the same way:
+a process that leads or shares fq's group is never force-quit by `--others`,
+and no force-quit ever sends `SIGKILL` to fq's own group — that would kill the
+"self process" (fq) before it could finish, e.g. before the sleep requested
+with `-s`. `--all` has no such safeguard for the *application* running the
+terminal: from a terminal it force-quits the terminal too (but still not fq's
+own process group, so the sleep always happens).
 
 ## Put the Mac to sleep (-s/--sleep)
 

@@ -123,6 +123,76 @@ run "no apps at all, cancelled (EOF): no sleep"   ''  0 0 -s
 run "no apps at all, no -s: no sleep"             ''  0 0 -y
 FQ_APPS_FILE="$apps"
 
+# The "self process" regression: when fq shares a process group with an
+# application that shows up in the list, --others must not force-quit it —
+# SIGKILL to that group would kill fq itself before it could sleep — and -s
+# must still put the Mac to sleep. The group is built with python3 (os.setpgid)
+# because a process group cannot be created from POSIX sh alone; if python3 is
+# unavailable this check is skipped.
+if command -v python3 >/dev/null 2>&1; then
+  pg_helper=$tmp/pg-self.py
+  apps_group=$tmp/apps-group.txt
+  cat > "$pg_helper" <<'PY'
+import os, sys, time
+
+fq = sys.argv[1]
+apps_file = os.environ["FQ_APPS_FILE"]
+
+# A process-group leader that is deliberately NOT an ancestor of fq.
+leader = os.fork()
+if leader == 0:
+    os.setpgid(0, 0)
+    time.sleep(30)
+    os._exit(0)
+
+time.sleep(0.3)
+with open(apps_file, "w") as f:
+    f.write("%d    Group Leader App\n" % leader)
+
+# Run fq inside that group: killing the group would kill fq as well.
+child = os.fork()
+if child == 0:
+    os.setpgid(0, leader)
+    os.execv(fq, [fq, "-o", "-y", "-s"])
+    os._exit(127)
+
+_, status = os.waitpid(child, 0)
+killed = os.WIFSIGNALED(status) and os.WTERMSIG(status) == 9
+leader_alive = True
+try:
+    os.kill(leader, 0)
+except OSError:
+    leader_alive = False
+try:
+    os.kill(leader, 9)
+except OSError:
+    pass
+try:
+    os.waitpid(leader, 0)
+except OSError:
+    pass
+
+if not leader_alive:
+    sys.stderr.write("group leader was force-quit\n")
+if killed:
+    sys.stderr.write("fq was killed by SIGKILL\n")
+sys.exit(0 if (leader_alive and not killed) else 1)
+PY
+  checks=$((checks + 1))
+  rm -f "$log"
+  FQ_APPS_FILE="$apps_group" python3 "$pg_helper" "$FQ" >/dev/null 2>&1
+  pg_status=$?
+  got=0
+  [ -f "$log" ] && got=$(wc -l < "$log" | tr -d ' ')
+  if [ "$pg_status" = "0" ] && [ "$got" = "1" ]; then
+    printf 'ok   self process group (--others -y -s): kept alive, slept\n'
+  else
+    failures=$((failures + 1))
+    printf 'FAIL self process group: helper exit %s, %s sleep call(s)\n' \
+      "$pg_status" "$got"
+  fi
+fi
+
 # --list cannot be combined with --sleep.
 checks=$((checks + 1))
 rm -f "$log"

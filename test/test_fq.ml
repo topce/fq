@@ -133,6 +133,13 @@ let () =
   check "parent_pid_of: gone pid -> None" (parent_pid_of 999999 = None);
   check "ancestor_pids: dead seed -> []" (ancestor_pids ~pid:999999 = []);
 
+  (* "Self process" guard: force_quit_pid must never signal fq's own pid.
+     This must return an error (not kill the test process!). *)
+  check "force_quit_pid: refuses fq's own pid"
+    (match force_quit_pid (Unix.getpid ()) with Error _ -> true | Ok _ -> false);
+  check "own_process_group: reports a live group"
+    (match own_process_group () with Some pg -> pg > 0 | None -> false);
+
   if !failures > 0 then begin
     Printf.printf "%d/%d checks failed\n%!" !failures !checks;
     exit 1

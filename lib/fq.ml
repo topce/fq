@@ -6,7 +6,7 @@
    for apps launched by LaunchServices) the whole group is killed so that
    helper processes of multi-process applications (browsers, …) die too. *)
 
-let version = "0.3.0"
+let version = "0.3.1"
 
 type app = {
   name : string;           (* display name, e.g. "Safari" *)
@@ -366,25 +366,39 @@ let attempt_kill target =
     else if e = Unix.EPERM then Kill_perm
     else Kill_error
 
+(* Process group of this process. Killing that group with [SIGKILL -pgid]
+   would kill fq itself — the "self process" — along with every other process
+   sharing the group, so [force_quit_pid] must never signal it. OCaml's Unix
+   module has no [getpgrp], so the group is read with ps(1) like any other. *)
+let own_process_group () = pgid_of (Unix.getpid ())
+
 let force_quit_pid pid =
-  (* When the process leads its own group, SIGKILL the whole group first so
-     that helper processes die too; fall back to the single process. *)
-  let targets =
-    match pgid_of pid with
-    | Some pg when pg = pid -> [ -pg; pid ]
-    | _ -> [ pid ]
-  in
-  let rec go = function
-    | [] ->
-      Error
-        "could not terminate the process (permission denied — try again with \
-         sudo — or it has already exited)"
-    | target :: rest -> (
-      match attempt_kill target with
-      | Kill_ok -> Ok Terminated
-      | Kill_gone -> Ok Already_gone
-      | Kill_perm | Kill_error -> go rest)
-  in
-  go targets
+  let me = Unix.getpid () in
+  if pid = me then Error "refusing to force-quit fq itself"
+  else begin
+    (* When the process leads its own group, SIGKILL the whole group first so
+       that helper processes die too; fall back to the single process. Never
+       our own process group: that would take fq (and the work still to do,
+       such as -s/--sleep) down with the victim. If the victim is the leader
+       of our group, only the victim is killed, so fq survives. *)
+    let own_group = own_process_group () in
+    let targets =
+      match pgid_of pid with
+      | Some pg when pg = pid && Some pg <> own_group -> [ -pg; pid ]
+      | _ -> [ pid ]
+    in
+    let rec go = function
+      | [] ->
+        Error
+          "could not terminate the process (permission denied — try again with \
+           sudo — or it has already exited)"
+      | target :: rest -> (
+        match attempt_kill target with
+        | Kill_ok -> Ok Terminated
+        | Kill_gone -> Ok Already_gone
+        | Kill_perm | Kill_error -> go rest)
+    in
+    go targets
+  end
 
 let force_quit a = force_quit_pid a.pid

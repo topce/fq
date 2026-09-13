@@ -4,6 +4,26 @@ All notable changes to fq are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-09-13
+
+### Fixed
+
+- `--others` no longer kills fq's own process group — the "self process". If an
+  application in the list led fq's process group (so it was not an ancestor),
+  fq treated it as a victim and sent `SIGKILL` to the whole group, taking
+  itself down with it; the requested `-s/--sleep` then never happened. The
+  process-group leader is now treated as self by `--others`, and
+  `force_quit_pid` never signals fq's own process group or pid, so the sleep
+  (and anything else still to do) always runs. With no other application to
+  quit, `-o -y -s` still puts the Mac to sleep.
+
+### Tests
+
+- `test/test_sleep.sh` now also covers the self-process case: fq is placed in
+  a process group led by a non-ancestor application and `-o -y -s` must leave
+  that application running and still put the Mac to sleep. `test/test_fq.ml`
+  checks that a force-quit refuses fq's own pid.
+
 ## [0.3.0] - 2026-09-13
 
 ### Fixed

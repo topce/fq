@@ -203,7 +203,10 @@ marked "(protected)" and cannot be picked without -f.
 
 The application running this terminal (the GUI app that launched the session
 fq is running in) is never force-quit, even with -f: killing it would take
-down fq's own terminal.
+down fq's own terminal. For the same reason fq never force-quits its own
+process group: a process that leads or shares fq's group is treated as self
+by --others, and no force-quit ever signals fq's own group (that would kill
+fq itself before it could do anything else, such as the requested sleep).
 
 With -s/--sleep the Mac is put to sleep once the force-quits are done, so a
 confirming answer also asks for the sleep ("… and put the Mac to sleep?").
@@ -315,11 +318,19 @@ let norm_name s =
 let is_protected_name s = List.mem (norm_name s) protected_names
 let is_protected a = is_protected_name a.name
 
-(* Pids that "are" this invocation of fq: fq itself and every ancestor
-   process. The GUI application hosting the terminal that ran fq is the
-   ancestor that shows up in the application list; force-quitting it would
-   take down our own session, so --others never touches it. *)
-let self_pids () = Unix.getpid () :: Fq.ancestor_pids ~pid:(Unix.getpid ())
+(* Pids that "are" this invocation of fq: fq itself, every ancestor process,
+   and the leader of our own process group. The GUI application hosting the
+   terminal that ran fq is the ancestor that shows up in the application
+   list; force-quitting it would take down our own session, so --others never
+   touches it. The process-group leader is included because killing its group
+   (or being killed as its group) would take fq down with it even when it is
+   not an ancestor — e.g. when fq was placed in another process's group. *)
+let self_pids () =
+  let me = Unix.getpid () in
+  let pids = me :: Fq.ancestor_pids ~pid:me in
+  match Fq.own_process_group () with
+  | Some pg when not (List.mem pg pids) -> pg :: pids
+  | _ -> pids
 
 (* Executable basename of a process, for protecting --pid targets that could
    not be resolved against the enumerated application list. *)
@@ -617,9 +628,10 @@ let all_mode ~yes ~force ~sleep ~backend_opt =
      already asked for the force-quits and the sleep together. *)
   sleep_after_quits ~sleep ~yes:true ~quits_ok
 
-(* Force-quit every running application except the one running this terminal
-   (an ancestor of fq itself — never killed, even with --force) and the
-   protected system applications (killed only with --force). *)
+(* Force-quit every running application except the ones that are "self" — fq
+   itself, its ancestors (the application running this terminal) and the
+   leader of fq's own process group (never killed, even with --force) — and
+   the protected system applications (killed only with --force). *)
 let others_mode ~yes ~force ~sleep ~backend_opt =
   let apps = get_apps backend_opt in
   let is_self a = List.mem a.pid (self_pids ()) in
@@ -635,7 +647,7 @@ let others_mode ~yes ~force ~sleep ~backend_opt =
     let notes = ref [] in
     if here <> [] then
       notes :=
-        Printf.sprintf "%d %s running this terminal — never force-quit"
+        Printf.sprintf "%d %s running this terminal (or sharing its process group) — never force-quit"
           (List.length here) (plural (List.length here) "application")
         :: !notes;
     if n_skipped > 0 then
@@ -666,7 +678,7 @@ let others_mode ~yes ~force ~sleep ~backend_opt =
       say "%s"
         (dim
            (Printf.sprintf
-              "(kept running: %s — the application running this terminal is never force-quit)"
+              "(kept running: %s — fq never force-quits the application running this terminal or its own process group)"
               (String.concat ", "
                  (List.map
                     (fun a -> Printf.sprintf "%s (pid %d)" a.name a.pid)

@@ -74,8 +74,15 @@ type quit_outcome = Terminated | Already_gone
     Otherwise only the main process is killed. *)
 val force_quit : app -> (quit_outcome, string) result
 
+(** Process group of this process, if it can be determined. Used to make
+    sure a force-quit never signals fq's own group: doing so would SIGKILL
+    the "self process" (fq) before it could finish, e.g. before the sleep
+    requested with [-s/--sleep]. *)
+val own_process_group : unit -> int option
+
 (** [force_quit_pid pid] force-quits the process (and, when it leads its own
-    process group, that group). *)
+    process group, that group). fq's own process and process group are never
+    signalled: if the victim leads fq's group, only the victim is killed. *)
 val force_quit_pid : int -> (quit_outcome, string) result
 
 (** Parser for [lsappinfo list] output; exposed for testing. *)
