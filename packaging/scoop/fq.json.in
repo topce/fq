@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json",
+  "version": "@VERSION@",
+  "description": "Force-quit GUI applications from the command line, like the Force Quit dialog",
+  "homepage": "https://github.com/topce/fq",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/topce/fq/releases/download/v@VERSION@/fq-@VERSION@-windows-x86_64.zip",
+      "hash": "@SHA256_WINDOWS_X86_64@",
+      "extract_dir": "fq-@VERSION@-windows-x86_64"
+    }
+  },
+  "bin": "fq.exe",
+  "checkver": {
+    "github": "https://github.com/topce/fq"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/topce/fq/releases/download/v$version/fq-$version-windows-x86_64.zip"
+      }
+    },
+    "hash": {
+      "url": "https://github.com/topce/fq/releases/download/v$version/SHA256SUMS",
+      "regex": "([a-fA-F0-9]{64})\\s+fq-$version-windows-x86_64\\.zip"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+class Fq < Formula
+  desc "Force-quit applications from the command line, like the Force Quit dialog"
+  homepage "https://github.com/topce/fq"
+  url "https://github.com/topce/fq/archive/refs/tags/v@VERSION@.tar.gz"
+  sha256 "@SHA256_SOURCE_TARBALL@"
+  license "MIT"
+
+  depends_on "dune" => :build
+  depends_on "ocaml" => :build
+
+  def install
+    # stdlib + unix only, so a plain dune build suffices (no opam needed)
+    system "dune", "build", "--profile", "release"
+    bin.install "_build/default/bin/main.exe" => "fq"
+  end
+
+  test do
+    assert_match "fq @VERSION@", shell_output("#{bin}/fq --version")
+    assert_match "Usage: fq", shell_output("#{bin}/fq --help")
+  end
+end

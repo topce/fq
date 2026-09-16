@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+PackageIdentifier: Topce.Fq
+PackageVersion: "@VERSION@"
+PackageLocale: en-US
+Publisher: topce
+PublisherUrl: https://github.com/topce
+PublisherSupportUrl: https://github.com/topce/fq/issues
+PackageName: fq
+PackageUrl: https://github.com/topce/fq
+License: MIT
+LicenseUrl: https://github.com/topce/fq/blob/main/LICENSE
+Copyright: FQ contributors
+ShortDescription: Force-quit GUI applications from the command line, like the Force Quit dialog
+Description: |-
+  fq lists the running GUI applications and force-quits the chosen one: no
+  chance to save work, helper processes taken down with the app. The command
+  line is the same on macOS, Linux and Windows; on Windows it enumerates the
+  windowed processes with tasklist(1) and terminates them with
+  taskkill /T /F. -s/--sleep puts the PC to sleep afterwards.
+Moniker: fq
+Tags:
+  - cli
+  - force-quit
+  - processes
+  - task-manager
+  - uninstaller
+ReleaseNotesUrl: https://github.com/topce/fq/blob/main/CHANGELOG.md
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

@@ -1,0 +1,33 @@
+# .deb / .rpm packaging with nfpm (https://nfpm.goreleaser.com).
+#
+# Unpack the linux-x86_64 release tarball next to this file first, then:
+#   nfpm package -f nfpm.yaml -p deb -t fq_@VERSION@_amd64.deb
+#   nfpm package -f nfpm.yaml -p rpm -t fq-@VERSION@.x86_64.rpm
+name: fq
+arch: amd64
+platform: linux
+version: "@VERSION@"
+section: utils
+priority: optional
+maintainer: FQ contributors <https://github.com/topce/fq>
+description: |
+  Force-quit GUI applications from the command line, like the Force Quit
+  dialog: the applications of the current graphical session are enumerated and
+  the chosen one is killed together with its helper processes.
+vendor: topce
+homepage: https://github.com/topce/fq
+license: MIT
+contents:
+  - src: ./fq-@VERSION@-linux-x86_64/fq
+    dst: /usr/bin/fq
+  - src: ./fq-@VERSION@-linux-x86_64/LICENSE
+    dst: /usr/share/licenses/fq/LICENSE
+  - src: ./fq-@VERSION@-linux-x86_64/README.md
+    dst: /usr/share/doc/fq/README.md
+  - src: ./fq-@VERSION@-linux-x86_64/CHANGELOG.md
+    dst: /usr/share/doc/fq/CHANGELOG.md
+deb:
+  compression: xz
+rpm:
+  summary: Force-quit GUI applications from the command line
+  group: Applications/System

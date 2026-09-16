@@ -1,0 +1,33 @@
+# Maintainer: FQ contributors <https://github.com/topce/fq>
+pkgname=fq
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Force-quit GUI applications from the command line, like the Force Quit dialog"
+arch=('x86_64' 'aarch64')
+url="https://github.com/topce/fq"
+license=('MIT')
+depends=('glibc')
+makedepends=('ocaml' 'dune')
+checkdepends=('python')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/topce/fq/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('@SHA256_SOURCE_TARBALL@')
+
+build() {
+  cd "$srcdir/fq-$pkgver"
+  dune build --profile release
+}
+
+check() {
+  cd "$srcdir/fq-$pkgver"
+  # the POSIX shell suites skip their process-fixture checks when python3 is
+  # unavailable; the unit tests always run
+  dune runtest
+}
+
+package() {
+  cd "$srcdir/fq-$pkgver"
+  install -Dm755 _build/default/bin/main.exe "$pkgdir/usr/bin/fq"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 CHANGELOG.md "$pkgdir/usr/share/doc/$pkgname/CHANGELOG.md"
+}

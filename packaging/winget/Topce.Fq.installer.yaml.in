@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
+# Portable install: the zip is unpacked and fq.exe is put on PATH, so there is
+# nothing to uninstall beyond removing the shim.
+PackageIdentifier: Topce.Fq
+PackageVersion: "@VERSION@"
+InstallerType: zip
+NestedInstallerType: portable
+ReleaseDate: "@DATE@"
+Installers:
+  - Architecture: x64
+    NestedInstallerFiles:
+      - RelativeFilePath: fq-@VERSION@-windows-x86_64/fq.exe
+        PortableCommandAlias: fq
+    InstallerUrl: https://github.com/topce/fq/releases/download/v@VERSION@/fq-@VERSION@-windows-x86_64.zip
+    InstallerSha256: @SHA256_WINDOWS_X86_64@
+ManifestType: installer
+ManifestVersion: 1.10.0
