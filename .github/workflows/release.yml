@@ -166,7 +166,7 @@ jobs:
           fi
 
       - name: Attest the provenance of the artifact
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: "dist/*"
 
