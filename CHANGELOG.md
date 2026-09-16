@@ -4,6 +4,60 @@ All notable changes to fq are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-16
+
+### Added
+
+- **Linux support.** Applications are enumerated from `/proc`: a process is an
+  application when it runs in a graphical session (`DISPLAY`/`WAYLAND_DISPLAY`),
+  does not belong to a terminal (it is neither a shell nor the job a terminal
+  is running in the foreground — an application started with `app &` or
+  detached from its terminal counts) and is not session infrastructure (window
+  manager, compositors, panels, session/sound daemons, portals, input methods).
+  Helper
+  processes of a multi-process application run the application's own binary and
+  are folded into it, and applications are named after their `.desktop` entry
+  when there is one. Victims are killed as a process group, or — for a process
+  that does not lead its own group — as a whole process tree read from `/proc`.
+  `-b wmctrl` lists the windows on screen instead (X11).
+- **Windows support.** Applications are enumerated with `tasklist /V` (windowed
+  processes; the image name without `.exe`), with PowerShell `Get-Process` as
+  the alternative backend. Victims are terminated with `taskkill /PID <pid>
+  /T /F`, helpers included. The process tree is read once with PowerShell for
+  the "this terminal is never killed" logic.
+- Platform-specific sleep commands: `systemctl suspend` (with `pm-suspend` and
+  `zzz` as fallbacks) on Linux and `SetSuspendState('Suspend')` (with
+  `rundll32` as a fallback) on Windows. On Windows the detached helper that
+  guarantees the sleep when the terminal itself is force-quit is a hidden,
+  detached PowerShell script.
+- Platform-specific protected system applications: the session shell, window
+  managers and session daemons on Linux; Explorer, the desktop window manager
+  and the core session processes on Windows.
+- `-b/--backend` accepts the backends of the running platform only, and an
+  unsupported platform is refused with a clear message instead of failing
+  somewhere deeper.
+- The help text, prompts and messages are platform-aware ("put the Mac to
+  sleep", "put the computer to sleep", "put the PC to sleep").
+- Release automation: `vX.Y.Z` tags build, test, package, checksum and attest
+  the Linux (glibc and static musl), macOS (Intel and Apple silicon) and
+  Windows binaries, and publish them as a GitHub release; `packaging/` renders
+  the Homebrew, Scoop, WinGet, AUR and nfpm manifests from the published
+  checksums, and `docs/RELEASING.md` is the runbook (channels, canary stage,
+  verification, rollback).
+- Test hooks for driving the non-native code paths anywhere: `FQ_PLATFORM`,
+  `FQ_ENUM_OUTPUT`, `FQ_PROC_ROOT` and `FQ_DESKTOP_DIRS` (documented in the
+  README), plus `test/test_platforms.sh`, which exercises the Linux backend
+  and its real kill path against a synthetic `/proc` tree.
+
+### Changed
+
+- A failed force-quit now always exits 1. Previously the exit status was only
+  turned into 1 by `-s/--sleep`; without it, a force-quit that failed (a
+  permission error, say) reported the failure but exited 0, contradicting the
+  documented exit status.
+- `FQ_APPS_FILE` is read directly instead of with `cat`, so the test hooks work
+  on Windows too.
+
 ## [0.3.1] - 2026-09-13
 
 ### Fixed

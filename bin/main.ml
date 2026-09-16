@@ -148,6 +148,11 @@ let ask prompt =
       out
     with
     | Unix.Unix_error _ -> read_line prompt
+    | Invalid_argument _ ->
+      (* Single-key mode is not available on this console (Windows has no
+         tcgetattr): read whole lines instead. *)
+      end_raw ();
+      read_line prompt
     | e ->
       end_raw ();
       raise e
@@ -157,22 +162,92 @@ let ask prompt =
 (* Help                                                               *)
 (* ------------------------------------------------------------------ *)
 
-let print_help () =
-  Printf.printf
-    "%s\n%!"
-    {|Usage: fq [OPTIONS] [APP]
+(* The usage, options and exit status are identical on every platform; only
+   the enumeration backends, the protected system applications and the sleep
+   command differ, so those are filled in from the library. The finished text
+   is re-wrapped, because the substituted values have different lengths on
+   every platform. *)
+let subst s ~pat ~rep =
+  let buf = Buffer.create (String.length s) in
+  let lp = String.length pat in
+  let n = String.length s in
+  let rec go i =
+    if i >= n then ()
+    else if i + lp <= n && String.sub s i lp = pat then begin
+      Buffer.add_string buf rep;
+      go (i + lp)
+    end
+    else begin
+      Buffer.add_char buf s.[i];
+      go (i + 1)
+    end
+  in
+  go 0;
+  Buffer.contents buf
 
-Force-quit running applications from the command line. Behaviour mirrors the
-system "Force Quit" dialog (⌥⌘⎋): running GUI applications are listed, and the
-chosen one is terminated immediately with SIGKILL — it gets no chance to save
-its work. Multi-process applications (browsers, …) are taken down completely.
+(* Greedy word wrap. [indent] prefixes every line but the first, whose
+   indentation the template already supplies. *)
+let wrap_words ?(indent = "") ~width text =
+  let words =
+    String.split_on_char ' ' (String.trim text) |> List.filter (fun w -> w <> "")
+  in
+  let buf = Buffer.create (String.length text) in
+  let line = ref "" in
+  List.iter
+    (fun w ->
+      if !line = "" then line := w
+      else if String.length !line + 1 + String.length w <= width then
+        line := !line ^ " " ^ w
+      else begin
+        Buffer.add_string buf !line;
+        Buffer.add_char buf '\n';
+        Buffer.add_string buf indent;
+        line := w
+      end)
+    words;
+  Buffer.add_string buf !line;
+  Buffer.contents buf
+
+(* Re-wrap the prose paragraphs — the lines that start at column 0 — and leave
+   the indented blocks (options, examples, the protected list) untouched. *)
+let wrap_paragraphs ~width text =
+  let out = Buffer.create (String.length text) in
+  let para = Buffer.create 256 in
+  let emit () =
+    if Buffer.length para > 0 then begin
+      Buffer.add_string out (wrap_words ~width (Buffer.contents para));
+      Buffer.add_char out '\n';
+      Buffer.clear para
+    end
+  in
+  String.split_on_char '\n' text
+  |> List.iter (fun line ->
+         if line <> "" && line.[0] <> ' ' then begin
+           if Buffer.length para > 0 then Buffer.add_char para ' ';
+           Buffer.add_string para line
+         end
+         else begin
+           emit ();
+           Buffer.add_string out line;
+           Buffer.add_char out '\n'
+         end);
+  emit ();
+  Buffer.contents out
+
+let help_template =
+  {|Usage: fq [OPTIONS] [APP]
+
+Force-quit running applications from the command line. Running GUI
+applications are listed and the chosen one is killed immediately (@KILL@):
+it gets no chance to save its work. Multi-process applications (browsers, …)
+are taken down completely.
 
 With no APP, fq lists the running applications interactively: type the number
 of an application to force quit it, or several comma-separated numbers (e.g.
 1,3,5) to force quit several at once. Press Return to submit a choice, or
 Escape to cancel the picker. With APP, the application whose display name
-matches APP is force-quit (matching is case-insensitive and a trailing
-".app" is ignored).
+matches APP is force-quit (matching is case-insensitive; a trailing ".app" is
+ignored, and an unambiguous substring is enough).
 
 Options:
   -l, --list             list running applications as "pid name" and exit
@@ -182,82 +257,135 @@ Options:
                          application running this terminal (fq itself) and
                          the protected system ones listed below
   -p, --pid PID          force quit the process with this PID
-  -s, --sleep            after force-quitting, also put the Mac to sleep
-                         (pmset sleepnow) — also when there was nothing to
-                         quit
+  -s, --sleep            sleep after the force-quits, even when there
+                         was nothing to quit (@SLEEPCMD@)
   -y, --yes              force quit without asking for confirmation
   -f, --force            allow force-quitting a protected system application
-                         (Finder, loginwindow, WindowManager, Dock, ...)
-  -b, --backend BACKEND  enumeration backend: lsappinfo (default) | osascript
+  -b, --backend BACKEND  enumeration backend: @BACKENDS@
   -h, --help             show this help and exit
   -V, --version          show version and exit
 
-Applications are enumerated with lsappinfo(1) when possible, so no
-Automation/Accessibility permission is required; osascript/System Events is
-used as a fallback.
+Running on @PLATFORM@.
 
-Protected applications: fq refuses to force-quit core system processes
-(Finder, loginwindow, WindowManager, Dock, SystemUIServer, Control Center,
-Notification Center) unless -f is given. Finder appears in the list but is
-marked "(protected)" and cannot be picked without -f.
+@ENUMERATE@
 
-The application running this terminal (the GUI app that launched the session
-fq is running in) is never force-quit, even with -f: killing it would take
-down fq's own terminal. For the same reason fq never force-quits its own
-process group: a process that leads or shares fq's group is treated as self
-by --others, and no force-quit ever signals fq's own group (that would kill
-fq itself before it could do anything else, such as the requested sleep).
+Protected applications: fq refuses to force-quit the core processes of the
+current session unless -f is given:
+  @PROTECTED@
 
-With -s/--sleep the Mac is put to sleep once the force-quits are done, so a
-confirming answer also asks for the sleep ("… and put the Mac to sleep?").
-The sleep is a step of its own, so it happens even when there was nothing to
-quit: with nothing to quit, fq asks about the sleep alone ("Put the Mac to
-sleep? [y/N]") unless -y is given. When the force-quit list includes the
-application running this terminal (--all, or picking the terminal in the
-interactive list), that app is force-quit last and the sleep is handed to a
-detached helper process armed just beforehand, so the Mac still goes to sleep
-even if killing the terminal takes fq down with it. If any force-quit fails,
-the Mac is not put to sleep and fq exits 1.
+@NOTE@
+
+The application running this terminal (the GUI app that hosts the session fq
+is running in) is never force-quit, even with -f: killing it would take down
+fq's own terminal. For the same reason fq never force-quits its own process
+group: a process that leads or shares fq's group is treated as self by
+--others, and no force-quit ever signals fq's own group (that would kill fq
+itself before it could do anything else, such as the requested sleep).
+
+With -s/--sleep @MACHINE@ is put to sleep once the force-quits are done, so a
+confirming answer also asks for the sleep ("… and @SLEEP@?"). The sleep is a
+step of its own, so it happens even when there was nothing to quit: with
+nothing to quit, fq asks about the sleep alone ("@SLEEPCAP@? [y/N]") unless -y
+is given. When the force-quit list includes the application running this
+terminal (--all, or picking the terminal in the interactive list), that app is
+force-quit last and the sleep is handed to a detached helper process armed
+just beforehand, so @MACHINE@ still goes to sleep even if killing the terminal
+takes fq down with it. If any force-quit fails, @MACHINE@ is not put to sleep
+and fq exits 1.
 
 Examples:
   fq                       pick application(s) interactively (type 1,3,5 to
                            force quit several at once)
-  fq "Safari"              force quit Safari
-  fq -y firefox            non-interactive force quit
-  fq --list | grep -i notes
+  fq APP                   force quit the application named APP
+  fq -y APP                non-interactive force quit
+  fq --list                list the running applications
   fq --all                 force quit every application (protected ones are
                            skipped unless -f is also given)
   fq --others              force quit every other application; this terminal
                            and the protected ones keep running
   fq --others -f           same, but also quit the protected system ones
-  fq -s "Safari"           force quit Safari, then put the Mac to sleep
-  fq --others -y -s        force quit every other app, then put the Mac to
-                           sleep; this terminal keeps running and the sleep
-                           happens even if there was nothing else to quit
-  fq --all -y -s           force quit everything, then put the Mac to sleep
-                           (this terminal is force-quit too; the sleep still
-                           happens)
+  fq -s APP                force quit APP, then @SLEEP@
+  fq --others -y -s        force quit every other app, then sleep; this
+                           terminal keeps running and the sleep happens even
+                           if there was nothing else to quit
+  fq --all -y -s           force quit everything, then sleep (this terminal
+                           is force-quit too; the sleep still happens)
 
 Exit status:
   0  everything requested was force-quit or already gone; nothing was done
   1  error (application not found, permission denied, ...)
   2  usage error|}
 
+let print_help () =
+  let kill, enumerate, note =
+    match Fq.platform () with
+    | Fq.Macos ->
+      ( "SIGKILL",
+        "Applications are enumerated with lsappinfo(1) when possible, so no \
+         Automation/Accessibility permission is required; System Events via \
+         osascript is used as a fallback (-b osascript).",
+        "Finder appears in the list but is marked \"(protected)\" and cannot \
+         be picked without -f." )
+    | Fq.Linux ->
+      ( "SIGKILL",
+        "Applications are enumerated from /proc: the processes of the current \
+         graphical session that neither belong to a terminal (a shell, or the \
+         job a terminal is running in the foreground) nor are session \
+         infrastructure (window manager, panels, session daemons). They are \
+         named after their .desktop entry when there is one. wmctrl(1) lists \
+         the windows on screen instead and can be selected with -b wmctrl.",
+        "The window manager, the shell and the session daemons are protected \
+         — killing them would end the session." )
+    | Fq.Windows ->
+      ( "taskkill /T /F",
+        "Applications are enumerated with tasklist(1), which lists windowed \
+         processes only — applications without a window (tray-only helpers) \
+         are not listed. Get-Process via PowerShell can be selected with -b \
+         powershell. Administrator rights are needed to see and quit the \
+         processes of other users.",
+        "Explorer, the desktop window manager and the core session processes \
+         are protected — killing them would end the session." )
+    | Fq.Other _ -> ("SIGKILL", "This platform is not supported.", "")
+  in
+  let sleep = Fq.sleep_phrase () in
+  let text = help_template in
+  let text = subst text ~pat:"@KILL@" ~rep:kill in
+  let text = subst text ~pat:"@ENUMERATE@" ~rep:(wrap_words ~width:78 enumerate) in
+  let text = subst text ~pat:"@NOTE@" ~rep:(wrap_words ~width:78 note) in
+  let text = subst text ~pat:"@PLATFORM@" ~rep:(Fq.platform_name ()) in
+  let text = subst text ~pat:"@MACHINE@" ~rep:(Fq.machine_name ()) in
+  let text = subst text ~pat:"@SLEEPCMD@" ~rep:(Fq.sleep_command_display ()) in
+  let text = subst text ~pat:"@SLEEPCAP@" ~rep:(String.capitalize_ascii sleep) in
+  let text = subst text ~pat:"@SLEEP@" ~rep:sleep in
+  let text =
+    subst text ~pat:"@BACKENDS@"
+      ~rep:
+        (String.concat " | "
+           (List.map Fq.backend_to_string (Fq.all_backends ())))
+  in
+  let text =
+    subst text ~pat:"@PROTECTED@"
+      ~rep:
+        (wrap_words ~indent:"  " ~width:76
+           (String.concat ", " (Fq.protected_names ())))
+  in
+  Printf.printf "%s\n%!" (wrap_paragraphs ~width:78 text)
+
 (* ------------------------------------------------------------------ *)
 (* Plumbing                                                           *)
 (* ------------------------------------------------------------------ *)
 
-let ensure_darwin () =
-  match run_capture [| "uname"; "-s" |] with
-  | Ok s when String.trim s = "Darwin" -> ()
-  | _ -> fatal "this tool requires macOS (the Force Quit dialog is a macOS feature)"
+let ensure_supported () =
+  if not (Fq.supported_platform ()) then
+    fatal "unsupported platform %s — fq runs on macOS, Linux and Windows"
+      (Fq.platform_name ())
 
 (* Applications are enumerated by the chosen backend. FQ_APPS_FILE overrides
    the enumeration with a file of "pid name" lines, which lets the test suite
    drive fq through its real code paths without touching the applications that
    happen to be running on the machine. *)
 let apps_from_file path =
-  match Fq.run_capture [| "cat"; path |] with
+  match Fq.read_file path with
   | Error e -> Error e
   | Ok out ->
     let apps =
@@ -303,20 +431,13 @@ let listing apps =
 (* Protected system applications                                     *)
 (* ------------------------------------------------------------------ *)
 
-(* Core system UI processes that must not be force-quit by accident. Finder
-   is relaunched automatically by launchd, but killing it is jarring; the
-   others (loginwindow, WindowManager, Dock, …) underpin the whole session.
-   [fq] refuses to kill these unless -f/--force is given. Names are compared
-   case-insensitively, ignoring spaces ("Control Center" == "controlcenter"). *)
-let protected_names =
-  [ "finder"; "loginwindow"; "windowmanager"; "dock"; "systemuiserver";
-    "controlcenter"; "notificationcenter" ]
-
-let norm_name s =
-  String.concat "" (String.split_on_char ' ' (String.lowercase_ascii s))
-
-let is_protected_name s = List.mem (norm_name s) protected_names
-let is_protected a = is_protected_name a.name
+(* Core system processes of the current platform that must not be force-quit
+   by accident — they underpin the whole session (Finder and the Dock on
+   macOS, the shell/window manager on Linux, Explorer and the session
+   processes on Windows). The list lives in the library, where it is chosen
+   per platform; see Fq.protected_names. *)
+let is_protected_name = Fq.is_protected_name
+let is_protected = Fq.is_protected
 
 (* Pids that "are" this invocation of fq: fq itself, every ancestor process,
    and the leader of our own process group. The GUI application hosting the
@@ -333,13 +454,9 @@ let self_pids () =
   | _ -> pids
 
 (* Executable basename of a process, for protecting --pid targets that could
-   not be resolved against the enumerated application list. *)
-let executable_of_pid pid =
-  match Fq.run_capture [| "ps"; "-o"; "comm="; "-p"; string_of_int pid |] with
-  | Ok s ->
-    let p = String.trim s in
-    if p = "" then None else Some (try Filename.basename p with _ -> p)
-  | Error _ -> None
+   not be resolved against the enumerated application list. The library reads
+   it per platform (ps(1), or the Windows process table). *)
+let executable_of_pid = Fq.executable_of_pid
 
 let refuse_if_protected ~force ~label protected =
   if (not force) && protected then
@@ -365,54 +482,36 @@ let plural n s = if n = 1 then s else s ^ "s"
 (* Sleep (-s/--sleep)                                                 *)
 (* ------------------------------------------------------------------ *)
 
-(* Name of the program that puts the Mac to sleep; pmset(1) needs no special
-   permission. FQ_SLEEP_CMD overrides it so the sleep path can be exercised
-   (and the Mac kept awake) by the tests. *)
-let sleep_cmd () =
-  match Sys.getenv_opt "FQ_SLEEP_CMD" with
-  | Some s when String.trim s <> "" -> String.trim s
-  | _ -> "pmset"
+(* The platform's sleep command (pmset sleepnow on macOS, systemctl suspend on
+   Linux, SetSuspendState on Windows) comes from the library; FQ_SLEEP_CMD
+   overrides it so the sleep path can be exercised — and the machine kept
+   awake — by the tests. *)
 
-let sleep_invocation () =
-  let p = sleep_cmd () in
-  if p = "pmset" then [| "pmset"; "sleepnow" |] else [| p |]
+(* Put the machine to sleep immediately. *)
+let sleep_now () =
+  match Fq.sleep_now () with
+  | Ok () -> say "%s" (green (Printf.sprintf "Putting %s to sleep." (Fq.machine_name ())))
+  | Error e ->
+    fatal "could not %s: %s" (Fq.sleep_phrase ()) e
 
-(* Put the Mac to sleep immediately. *)
-let sleep_macos () =
-  match Fq.run_capture (sleep_invocation ()) with
-  | Ok _ -> say "%s" (green "Putting the Mac to sleep.")
-  | Error e -> fatal "could not put the Mac to sleep: %s" e
-
-(* Arm a fully detached helper that waits [delay] seconds, then puts the Mac
-   to sleep. Needed when the force-quit list includes the application running
-   this terminal: killing that app can take fq's own process group with it,
-   so fq may not live long enough to run pmset itself. The helper gets its
-   own session (setsid) and /dev/null for stdio, so tearing down the
-   terminal session cannot stop it either. If fq survives, it sleeps
-   directly and this helper simply finds the Mac already asleep. *)
-let arm_delayed_sleep ~delay =
-  let cmd =
-    Printf.sprintf "sleep %g; exec %s" delay (Filename.quote (sleep_cmd ()))
-  in
-  match Unix.fork () with
-  | 0 -> (
-    (try ignore (Unix.setsid ()) with _ -> ());
-    let devnull = Unix.openfile "/dev/null" [ Unix.O_RDWR ] 0 in
-    (try Unix.dup2 devnull Unix.stdin with _ -> ());
-    (try Unix.dup2 devnull Unix.stdout with _ -> ());
-    (try Unix.dup2 devnull Unix.stderr with _ -> ());
-    (try Unix.close devnull with _ -> ());
-    try Unix.execvp "sh" [| "sh"; "-c"; cmd |] with _ -> exit 127)
-  | _ -> ()
+(* Arm a fully detached helper that waits [delay] seconds, then puts the
+   machine to sleep (fork/setsid on POSIX, a hidden detached PowerShell script
+   on Windows). Needed when the force-quit list includes the application
+   running this terminal: killing that app can take fq's own process group
+   with it, so fq may not live long enough to run the sleep itself. If fq
+   survives, it sleeps directly and this helper simply finds the machine
+   already asleep. *)
+let arm_delayed_sleep ~delay = Fq.arm_delayed_sleep ~delay
 
 (* Force-quit the victims, reporting per-application results. The application
    running this terminal, if it is among the victims, is force-quit last, since
    killing it may take fq's own process group down with it; a detached helper
-   is armed just before that kill so the Mac still goes to sleep afterwards.
+   is armed just before that kill so the machine still goes to sleep
+   afterwards.
    Returns [true] when every force-quit succeeded (or there was nothing to do)
    and [false] when one failed — the caller then skips the sleep and exits 1,
-   so a partial failure never puts the Mac to sleep. The sleep itself is not
-   performed here: every mode calls [sleep_after_quits] once it is done, so
+   so a partial failure never puts the machine to sleep. The sleep itself is
+   not performed here: every mode calls [sleep_after_quits] once it is done, so
    -s/--sleep is honoured even when there was nothing to quit. *)
 let finish_quits ~sleep victims =
   let self = self_pids () in
@@ -431,40 +530,45 @@ let finish_quits ~sleep victims =
   if here <> [] then begin
     (* The app running this terminal goes last — and the detached helper is
        armed only when nothing failed so far, so a partial failure never
-       puts the Mac to sleep behind fq's back. *)
+       puts the machine to sleep behind fq's back. *)
     if sleep && !failed = 0 then arm_delayed_sleep ~delay:1.0;
     List.iter kill_one here
   end;
   if !failed > 0 then begin
     if sleep then
-      warn "not putting the Mac to sleep — %d %s failed" !failed
+      warn "not %s — %d %s failed" (Fq.sleep_phrase ()) !failed
         (plural !failed "force-quit");
     false
   end
   else true
 
-(* Put the Mac to sleep once the force-quits are done. [quits_ok] is false
-   when a force-quit failed: -s is then abandoned (and the exit status is 1)
-   rather than putting the Mac to sleep halfway through. With nothing to quit
-   at all — the app running this terminal is the only one left, say — the
-   sleep still happens, because that is what -s was asked for; the user
-   confirms it on its own unless -y was given. *)
+(* Put the machine to sleep once the force-quits are done, and turn a failed
+   force-quit into exit status 1 (with or without -s). [quits_ok] is false
+   when a force-quit failed: -s is then abandoned rather than putting the
+   machine to sleep halfway through. With nothing to quit at all — the app
+   running this terminal is the only one left, say — the sleep still happens,
+   because that is what -s was asked for; the user confirms it on its own
+   unless -y was given. *)
 let sleep_after_quits ~sleep ~yes ~quits_ok =
-  if sleep then begin
-    if not quits_ok then exit 1
-    else begin
-      let go =
-        if yes then true
-        else
-          match ask "Put the Mac to sleep? [y/N] " with
-          | `Cancel -> false
-          | `Submit ans ->
-            let a = String.lowercase_ascii (String.trim ans) in
-            a = "y" || a = "yes"
-      in
-      if go then sleep_macos ()
-      else say "%s" (dim "Cancelled — the Mac was not put to sleep.")
-    end
+  if not quits_ok then exit 1
+  else if sleep then begin
+    let go =
+      if yes then true
+      else
+        match
+          ask (String.capitalize_ascii (Fq.sleep_phrase ()) ^ "? [y/N] ")
+        with
+        | `Cancel -> false
+        | `Submit ans ->
+          let a = String.lowercase_ascii (String.trim ans) in
+          a = "y" || a = "yes"
+    in
+    if go then sleep_now ()
+    else
+      say "%s"
+        (dim
+           (Printf.sprintf "Cancelled — %s was not put to sleep."
+              (Fq.machine_name ())))
   end
 
 (* ------------------------------------------------------------------ *)
@@ -552,7 +656,7 @@ let interactive ~force ~sleep apps =
       Printf.sprintf "these %d %s (%s)" n_victims
         (plural n_victims "application") names
   in
-  let label = if sleep then label ^ " and put the Mac to sleep" else label in
+  let label = if sleep then label ^ " and " ^ Fq.sleep_phrase () else label in
   if not (confirm ~yes:false ~label) then begin
     say "%s" (dim "Cancelled — nothing was force-quit.");
     exit 0
@@ -565,7 +669,7 @@ let name_mode ~yes ~force ~sleep ~apps name =
   | Unique a ->
     let label = describe a in
     refuse_if_protected ~force ~label (is_protected a);
-    let label = if sleep then label ^ " and put the Mac to sleep" else label in
+    let label = if sleep then label ^ " and " ^ Fq.sleep_phrase () else label in
     if not (confirm ~yes ~label) then begin
       say "%s" (dim "Cancelled — nothing was force-quit.");
       exit 0
@@ -600,7 +704,7 @@ let all_mode ~yes ~force ~sleep ~backend_opt =
               "No force-quittable applications (skipped %d protected; use %s to include them)"
               n_skipped (bold "-f/--force")))
     else say "%s" (dim "No running applications to force quit.");
-    (* Nothing to quit — but -s was still asked for: put the Mac to sleep. *)
+    (* Nothing to quit — but -s was still asked for: put the machine to sleep. *)
     sleep_after_quits ~sleep ~yes ~quits_ok:true;
     exit 0
   end;
@@ -617,7 +721,7 @@ let all_mode ~yes ~force ~sleep ~backend_opt =
             n_skipped (plural n_skipped "application") (bold "-f/--force")));
   let confirm_label =
     Printf.sprintf "these %d %s" n_victims (plural n_victims "application")
-    ^ if sleep then " and put the Mac to sleep" else ""
+    ^ if sleep then " and " ^ Fq.sleep_phrase () else ""
   in
   if not (confirm ~yes ~label:confirm_label) then begin
     say "%s" (dim "Cancelled — nothing was force-quit.");
@@ -628,12 +732,24 @@ let all_mode ~yes ~force ~sleep ~backend_opt =
      already asked for the force-quits and the sleep together. *)
   sleep_after_quits ~sleep ~yes:true ~quits_ok
 
+(* --others never touches the application hosting this terminal; that app is
+   found by walking the process tree upward. When the tree cannot be read at
+   all (no ps(1), PowerShell unavailable, /proc not mounted), say so: the
+   terminal cannot be recognised then, and quietly killing it would take the
+   session — and fq with it — down. *)
+let warn_if_ancestry_unknown () =
+  if Fq.parent_pid_of (Unix.getpid ()) = None then
+    warn
+      "cannot read the process tree — the application running this terminal \
+       cannot be identified and is not protected"
+
 (* Force-quit every running application except the ones that are "self" — fq
    itself, its ancestors (the application running this terminal) and the
    leader of fq's own process group (never killed, even with --force) — and
    the protected system applications (killed only with --force). *)
 let others_mode ~yes ~force ~sleep ~backend_opt =
   let apps = get_apps backend_opt in
+  warn_if_ancestry_unknown ();
   let is_self a = List.mem a.pid (self_pids ()) in
   let here, rest = List.partition is_self apps in
   let victims, skipped =
@@ -685,7 +801,7 @@ let others_mode ~yes ~force ~sleep ~backend_opt =
                     here))))
   end;
   (* Nothing to quit is not a reason to skip the sleep: -s was asked for, so
-     the Mac is put to sleep all the same (nothing is confirmed, since there
+     the machine is put to sleep all the same (nothing is confirmed, since there
      is nothing to kill). *)
   if nothing_to_quit then begin
     sleep_after_quits ~sleep ~yes ~quits_ok:true;
@@ -693,7 +809,7 @@ let others_mode ~yes ~force ~sleep ~backend_opt =
   end;
   let confirm_label =
     Printf.sprintf "these %d %s" n_victims (plural n_victims "application")
-    ^ if sleep then " and put the Mac to sleep" else ""
+    ^ if sleep then " and " ^ Fq.sleep_phrase () else ""
   in
   if not (confirm ~yes ~label:confirm_label) then begin
     say "%s" (dim "Cancelled — nothing was force-quit.");
@@ -725,16 +841,16 @@ let pid_mode ~yes ~force ~sleep ~backend_opt pid =
   in
   refuse_if_protected ~force ~label protected;
   let confirm_label =
-    if sleep then label ^ " and put the Mac to sleep" else label
+    if sleep then label ^ " and " ^ Fq.sleep_phrase () else label
   in
   if not (confirm ~yes ~label:confirm_label) then begin
     say "%s" (dim "Cancelled — nothing was force-quit.");
     exit 0
   end;
-  (* The Mac is put to sleep after the kill. If the target is the application
-     running this terminal, arm the detached helper first — killing that app
-     can take fq's own process group with it, and the helper then still puts
-     the Mac to sleep a moment later. *)
+  (* The machine is put to sleep after the kill. If the target is the
+     application running this terminal, arm the detached helper first —
+     killing that app can take fq's own process group with it, and the helper
+     then still puts the machine to sleep a moment later. *)
   if sleep && List.mem pid (self_pids ()) then arm_delayed_sleep ~delay:1.0;
   (match Fq.force_quit_pid pid with
    | Ok Terminated -> say "%s" (green ("Force-quit " ^ label ^ "."))
@@ -802,7 +918,8 @@ let () =
          | Some b -> backend_opt := Some b
          | None ->
            usage_error "unknown backend %S (expected %s)" v
-             (String.concat " or " (List.map Fq.backend_to_string Fq.all_backends)))
+             (String.concat " or "
+                (List.map Fq.backend_to_string (Fq.all_backends ()))))
       | _ -> usage_error "unknown option %S (try --help)" a
     end
     else set_action (By_name a);
@@ -819,7 +936,7 @@ let () =
   end;
   if !sleep && !action = Some List_apps then
     usage_error "--list cannot be combined with --sleep";
-  ensure_darwin ();
+  ensure_supported ();
   match !action with
   | None -> interactive ~force:!force ~sleep:!sleep (get_apps !backend_opt)
   | Some List_apps -> print_list (get_apps !backend_opt)

@@ -8,7 +8,8 @@
 # so no real application is ever enumerated or killed, and FQ_SLEEP_CMD points
 # fq at a stub that merely records the call, so the Mac is never put to sleep.
 #
-# Usage: test_sleep.sh <path-to-fq-executable>
+# Works on any platform: the sleep command is a stub, so nothing is really
+# suspended. Usage: test_sleep.sh <path-to-fq-executable>
 
 set -u
 
@@ -126,7 +127,8 @@ FQ_APPS_FILE="$apps"
 # The "self process" regression: when fq shares a process group with an
 # application that shows up in the list, --others must not force-quit it —
 # SIGKILL to that group would kill fq itself before it could sleep — and -s
-# must still put the Mac to sleep. The group is built with python3 (os.setpgid)
+# must still put the machine to sleep. The group is built with python3
+# (os.setpgid)
 # because a process group cannot be created from POSIX sh alone; if python3 is
 # unavailable this check is skipped.
 if command -v python3 >/dev/null 2>&1; then

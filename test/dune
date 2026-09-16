@@ -2,12 +2,34 @@
  (name test_fq)
  (libraries fq unix))
 
-; End-to-end checks for -s/--sleep. The stub sleep command keeps the Mac
+; The shell suites drive the built executable through POSIX shell, python3 and
+; fixture processes, so they only run on macOS and Linux. Windows is covered by
+; test_fq.ml (parsers, name matching, /proc fixtures) and by the smoke test in
+; CI.
+
+; End-to-end checks for -s/--sleep. The stub sleep command keeps the machine
 ; awake; the test asserts fq asks for the sleep at the right moments.
 (rule
  (alias runtest)
+ (enabled_if
+  (<> %{system} win32))
  (deps
   test_sleep.sh
   %{exe:../bin/main.exe})
  (action
   (run sh %{dep:test_sleep.sh} %{exe:../bin/main.exe})))
+
+; End-to-end checks for the Linux and Windows code paths: FQ_PLATFORM selects
+; the platform, FQ_ENUM_OUTPUT / FQ_PROC_ROOT / FQ_DESKTOP_DIRS feed the
+; backends fixtures, and the Linux kill path really SIGKILLs the processes of
+; the fixture /proc tree. Nothing outside the fixture is touched and the
+; machine is never put to sleep.
+(rule
+ (alias runtest)
+ (enabled_if
+  (<> %{system} win32))
+ (deps
+  test_platforms.sh
+  %{exe:../bin/main.exe})
+ (action
+  (run sh %{dep:test_platforms.sh} %{exe:../bin/main.exe})))
