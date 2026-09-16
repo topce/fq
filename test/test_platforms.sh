@@ -122,13 +122,14 @@ host=$(hostname 2>/dev/null || uname -n 2>/dev/null || echo localhost)
     "$host" "$host"
 } > "$wmctrl"
 
-# Linux: a synthetic application list used to check the protected names.
+# Linux: a synthetic application list used to check the protected names. The
+# pids are absurd ones, so a check that stops refusing cannot kill anything.
 apps_linux=$tmp/apps-linux.txt
 cat > "$apps_linux" <<'APPS'
-# pid  name
-111    gnome-shell
-222    systemd
-333    firefox
+# pid    name
+424247   gnome-shell
+424248   systemd
+424251   firefox
 APPS
 
 # ------------------------------------------------------------------ checks --

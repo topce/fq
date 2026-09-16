@@ -31,15 +31,15 @@ printf 'SLEPT\n' >> "$FQ_STUB_LOG"
 STUB
 chmod +x "$stub"
 
-# Synthetic application list. The pids are deliberately absurd (no such
-# processes exist) and the only real-looking entries are the protected ones,
-# which fq refuses to quit without -f. With -o, "Other App" is the sole
+# Synthetic application list (macOS protected names). Every pid is a
+# deliberately absurd one: a check that unexpectedly does *not* refuse must
+# never be able to kill a live process. With -o, "Other App" is the sole
 # victim; with --pid, no fixture pid is ever a live process.
 cat > "$apps" <<'APPS'
-# pid  name
-600    WindowManager
-624    Finder
-424242 Other App
+# pid    name
+424243   WindowManager
+424244   Finder
+424242   Other App
 APPS
 
 export FQ_APPS_FILE="$apps"
@@ -48,6 +48,10 @@ export FQ_STUB_LOG="$log"
 
 failures=0
 checks=0
+
+# Extra environment for the next run() call, e.g. FQ_PLATFORM=macos. Empty by
+# default; env(1) with no assignments simply runs the command.
+FQ_EXTRA_ENV=""
 
 # run <description> <stdin> <expected-sleep-count> <expected-exit> <args...>
 run() {
@@ -58,7 +62,7 @@ run() {
   shift 4
   checks=$((checks + 1))
   rm -f "$log"
-  out=$(printf '%s' "$input" | "$FQ" "$@" 2>&1)
+  out=$(printf '%s' "$input" | env $FQ_EXTRA_ENV "$FQ" "$@" 2>&1)
   status=$?
   got=0
   [ -f "$log" ] && got=$(wc -l < "$log" | tr -d ' ')
@@ -104,10 +108,36 @@ run "pid (-y): sleeps"                            ''  1 0 --pid 424242 -y -s
 run "pid confirmed once: sleeps, no 2nd prompt"   'y' 1 0 --pid 424242 -s
 run "pid declined once: no sleep"                 'n' 0 0 --pid 424242 -s
 
-# Protected applications are still refused without -f, and the refusal must
-# not reach the sleep.
-run "protected name refused without -f"           'y' 0 1 Finder -s -y
-run "protected pid refused without -f"            'y' 0 1 --pid 624 -s -y
+# Protected system applications are still refused without -f, and the refusal
+# must not reach the sleep. Which names are protected depends on the platform,
+# so each platform's list gets its own check: FQ_PLATFORM picks the
+# implementation, and the fixture's absurd pids mean a check that wrongly
+# stops refusing still cannot kill anything.
+FQ_EXTRA_ENV="FQ_PLATFORM=macos"
+run "macOS protected name refused without -f"      'y' 0 1 Finder -s -y
+run "macOS protected pid refused without -f"       'y' 0 1 --pid 424244 -s -y
+
+apps_linux=$tmp/apps-linux.txt
+cat > "$apps_linux" <<'APPS'
+# pid    name
+424247   gnome-shell
+424248   systemd
+APPS
+
+apps_win=$tmp/apps-win.txt
+cat > "$apps_win" <<'APPS'
+# pid    name
+424249   explorer
+APPS
+
+FQ_EXTRA_ENV="FQ_APPS_FILE=$apps_linux FQ_PLATFORM=linux"
+run "Linux protected name refused without -f"      'y' 0 1 systemd -s -y
+run "Linux protected pid refused without -f"       'y' 0 1 --pid 424247 -s -y
+
+FQ_EXTRA_ENV="FQ_APPS_FILE=$apps_win FQ_PLATFORM=windows"
+run "Windows protected name refused without -f"    'y' 0 1 explorer -s -y
+run "Windows protected pid refused without -f"     'y' 0 1 --pid 424249 -s -y
+FQ_EXTRA_ENV=""
 
 # The interactive picker is not reached when an action is given, but a bare
 # invocation with -s must not sleep when the picker is cancelled at EOF.
