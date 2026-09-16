@@ -2,6 +2,9 @@ name: CI
 
 on:
   push:
+    # Both filters have to be given: a workflow whose push trigger only has
+    # tags/tags-ignore never runs for branch pushes at all.
+    branches: ["**"]
     tags-ignore: ["v*"] # releases are handled by release.yml
   pull_request:
   schedule:
