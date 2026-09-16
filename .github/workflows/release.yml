@@ -30,7 +30,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout tree
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
 
@@ -92,7 +92,7 @@ jobs:
     continue-on-error: ${{ matrix.best_effort == true }}
     steps:
       - name: Checkout tree
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
 
