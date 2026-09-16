@@ -38,12 +38,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   somewhere deeper.
 - The help text, prompts and messages are platform-aware ("put the Mac to
   sleep", "put the computer to sleep", "put the PC to sleep").
-- Release automation: `vX.Y.Z` tags build, test, package, checksum and attest
-  the Linux (glibc and static musl), macOS (Intel and Apple silicon) and
-  Windows binaries, and publish them as a GitHub release; `packaging/` renders
-  the Homebrew, Scoop, WinGet, AUR and nfpm manifests from the published
-  checksums, and `docs/RELEASING.md` is the runbook (channels, canary stage,
-  verification, rollback).
+- Packaging for every channel: `packaging/` renders the Homebrew, Scoop,
+  WinGet, AUR and nfpm manifests from a `SHA256SUMS` file, and
+  `docs/RELEASING.md` is the release runbook (tagging, the package managers,
+  building the optional archives by hand, canary stage, verification,
+  rollback, monitoring).
 - Test hooks for driving the non-native code paths anywhere: `FQ_PLATFORM`,
   `FQ_ENUM_OUTPUT`, `FQ_PROC_ROOT` and `FQ_DESKTOP_DIRS` (documented in the
   README), plus `test/test_platforms.sh`, which exercises the Linux backend

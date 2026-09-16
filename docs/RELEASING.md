@@ -1,144 +1,230 @@
 # Releasing fq
 
-How a release is cut, published to every channel, verified, and rolled back if
-it turns out to be a bad one. The automation lives in `.github/workflows/`; the
-channel manifests in `packaging/`.
+How a release is cut, published and rolled back. **There is no CI/CD**: every
+artifact and every channel publication below is a command a person runs and
+reviews. The package managers build fq from source, so a release needs nothing
+but a tag and a changelog — prebuilt binaries are optional and hand-made.
 
-- [What a release produces](#what-a-release-produces)
-- [One-time setup](#one-time-setup)
-- [Cutting a release](#cutting-a-release)
-- [Publishing to each channel](#publishing-to-each-channel)
-- [Staged rollout (canary)](#staged-rollout-canary)
-- [Post-release verification](#post-release-verification)
+- [What a release is](#what-a-release-is)
+- [Before you tag](#before-you-tag)
+- [Tagging](#tagging)
+- [Package managers (the primary channels)](#package-managers-the-primary-channels)
+- [Prebuilt binaries (optional, hand-made)](#prebuilt-binaries-optional-hand-made)
+- [Windows package managers (need a Windows build)](#windows-package-managers-need-a-windows-build)
+- [Staged rollout](#staged-rollout)
+- [Verification](#verification)
 - [Rollback](#rollback)
 - [Monitoring and upkeep](#monitoring-and-upkeep)
-- [Pre-launch checklist](#pre-launch-checklist)
-- [Known gaps before announcing widely](#known-gaps-before-announcing-widely)
+- [Known gaps](#known-gaps)
 
-## What a release produces
+## What a release is
 
-Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`, which builds and
-tests on five targets, packages each one, verifies the *archive* (not the build
-tree), attests its provenance and publishes a GitHub release with:
+1. A version that agrees in four places: `dune-project`, `lib/fq.ml`,
+   `CHANGELOG.md` and the git tag.
+2. An annotated tag `vX.Y.Z` on `main`.
+3. Channel updates — Homebrew (macOS and Linuxbrew), AUR, opam. These build
+   from the tag's source tarball.
+4. Optionally, prebuilt archives attached to a GitHub release, and the Scoop /
+   WinGet manifests that point at them.
 
-| Artifact | Built on | Notes |
-| --- | --- | --- |
-| `fq-X.Y.Z-linux-x86_64.tar.gz` | `ubuntu-22.04` | glibc ≥ 2.35: Ubuntu 22.04+, Debian 12+, RHEL 9+, Fedora 35+ |
-| `fq-X.Y.Z-linux-x86_64-static.tar.gz` | `ubuntu-22.04`, musl | fully static: Alpine, NixOS, old glibc. Best effort (`continue-on-error`) |
-| `fq-X.Y.Z-macos-x86_64.tar.gz` | `macos-13` | Intel |
-| `fq-X.Y.Z-macos-arm64.tar.gz` | `macos-14` | Apple silicon |
-| `fq-X.Y.Z-windows-x86_64.zip` | `windows-latest` | native PE, no runtime dependencies (Windows on ARM runs the x64 build) |
-| `SHA256SUMS` | — | every archive, used by the Scoop/WinGet/AUR manifests |
+Nothing is published automatically, so a mistake is fixed by not publishing (or
+by reverting a channel commit), never by rolling back a pipeline.
 
-Every archive is a directory with the binary, `README.md`, `LICENSE` and
-`CHANGELOG.md`. The Windows ARM64 and Linux ARM64 targets are not built:
-`ocaml/setup-ocaml` has no Windows ARM64 support, and the Linux ARM64 runner is
-not worth the CI minutes until someone asks for it (adding `ubuntu-24.04-arm`
-to the matrix is a one-line change).
+## Before you tag
 
-Each artifact carries a signed build-provenance attestation, so anyone can run:
+- [ ] `dune build && dune runtest` is green (59 unit checks, 31 sleep checks,
+      21 platform checks on macOS/Linux; Windows runs the unit tests).
+- [ ] The suite has been run on every platform you intend to claim support for:
+      macOS and Linux locally, Windows on a Windows machine or VM
+      (`dune runtest` there runs the unit tests, and
+      `_build\default\bin\main.exe --list` exercises the real `tasklist`
+      backend).
+- [ ] `CHANGELOG.md` describes every user-visible change, including behaviour
+      changes and fixes.
+- [ ] The version is bumped in `dune-project` (then `dune build` regenerates
+      `fq.opam`), `lib/fq.ml` and `CHANGELOG.md`.
+- [ ] `README.md` install instructions match what actually exists for this
+      version.
+- [ ] No secrets, tokens or machine-specific paths in the tree
+      (`git status`, `git diff --cached`).
+- [ ] The rollback table below has been read, and anything risky is going out
+      as a prerelease first.
+
+The version gate is manual now, so check it explicitly — a release whose
+`--version` lies is worse than no release:
 
 ```sh
-gh attestation verify fq-0.4.0-windows-x86_64.zip --repo topce/fq
+tag=v0.4.0
+printf 'dune-project: %s\nlib/fq.ml:    %s\nCHANGELOG:    %s\n' \
+  "$(sed -n 's/^(version \(.*\))$/\1/p' dune-project)" \
+  "$(sed -n 's/^let version = "\(.*\)"$/\1/p' lib/fq.ml)" \
+  "$(sed -n 's/^## \[\([^]]*\)\].*/\1/p' CHANGELOG.md | head -1)"
 ```
 
-## One-time setup
-
-| Channel | What has to exist once |
-| --- | --- |
-| GitHub Releases | nothing — the workflow uses the built-in `GITHUB_TOKEN` |
-| Homebrew | the tap `topce/homebrew-fq` (exists) |
-| opam | an `opam-publish` token (`~/.opam/config` + a GitHub token) |
-| Scoop | a bucket repository, e.g. `topce/scoop-bucket`, with a `bucket/` directory and a `README.md` |
-| WinGet | a fork of `microsoft/winget-pkgs` and a **classic** PAT with the `public_repo` scope, stored as the repository secret `WINGET_TOKEN`; plus one manual first submission (below) |
-| AUR | an AUR account with an SSH key registered |
-
-Nothing in the repository is secret and no credential is needed to *build* a
-release.
-
-## Cutting a release
-
-1. **Bump the version in the three places that must agree** — the release job
-   refuses to publish when they disagree with the tag:
-
-   ```sh
-   $EDITOR dune-project              # (version 0.4.0)
-   $EDITOR lib/fq.ml                 # let version = "0.4.0"
-   $EDITOR CHANGELOG.md              # ## [0.4.0] - YYYY-MM-DD
-   dune build                        # regenerates fq.opam from dune-project
-   git commit -am "Release v0.4.0"
-   ```
-
-2. **Run the full suite locally** (all three platforms in CI too):
-
-   ```sh
-   dune build && dune runtest
-   ```
-
-3. **Push a tag.** Use a suffix first if the release is at all risky — a tag
-   with a `-` in it publishes a *prerelease*, which is the canary stage:
-
-   ```sh
-   git push origin main
-   git tag v0.4.0-rc.1 && git push origin v0.4.0-rc.1   # canary
-   git tag v0.4.0     && git push origin v0.4.0         # full release
-   ```
-
-4. **Watch the workflow** (`gh run watch`) and read the job summary: it lists
-   every artifact with its sha256. CI (`ci.yml`) must be green on `main` first.
-
-5. **Render the channel manifests** from the published checksums:
-
-   ```sh
-   gh release download v0.4.0 -p SHA256SUMS
-   source_sha=$(curl -sL https://github.com/topce/fq/archive/refs/tags/v0.4.0.tar.gz | shasum -a 256 | cut -d' ' -f1)
-   packaging/render.sh 0.4.0 SHA256SUMS /tmp/fq-0.4.0 "$source_sha"
-   ```
-
-   Then publish as described below. Rendered files are inputs to a review, not
-   something to commit here.
-
-## Publishing to each channel
-
-### Linux
-
-**1. Release tarball (already done by the workflow).** This is the primary
-Linux channel and needs no third party:
+## Tagging
 
 ```sh
-curl -LO https://github.com/topce/fq/releases/download/v0.4.0/fq-0.4.0-linux-x86_64.tar.gz
-sha256sum -c SHA256SUMS --ignore-missing
-tar -xzf fq-0.4.0-linux-x86_64.tar.gz && sudo install -m755 fq-0.4.0-linux-x86_64/fq /usr/local/bin/fq
+git commit -am "Release v0.4.0"      # if the version bump is not committed yet
+git tag -a v0.4.0 -m "fq 0.4.0"
+git push origin main
+git push origin v0.4.0
 ```
 
-**2. Homebrew (Linuxbrew) and macOS** — the tap builds from source with
-`ocaml` + `dune`, so the same formula serves both platforms. Copy the rendered
-formula into the tap and push:
+Then publish the GitHub release page (source only, unless you built artifacts):
 
 ```sh
-cp /tmp/fq-0.4.0/homebrew/fq.rb ../homebrew-fq/Formula/fq.rb
-git -C ../homebrew-fq commit -am "fq 0.4.0" && git -C ../homebrew-fq push
-brew update && brew install topce/fq/fq
+gh release create v0.4.0 --title "fq 0.4.0" --generate-notes
+# or, for a canary: --prerelease --latest=false
 ```
 
-`brew bump-formula-pr --url=... --sha256=... topce/fq/fq` does the same thing
-through a PR. The formula in the tap still says "macOS" and tests for 0.3.1 —
-the rendered one is platform-neutral, so Linuxbrew users can install it too.
-
-**3. AUR (Arch)** — push the rendered `PKGBUILD` with a generated `.SRCINFO`:
+A tag is cheap to delete **as long as no channel points at it yet**:
 
 ```sh
-git clone ssh://aur@aur.archlinux.org/fq.git && cd fq
-cp /tmp/fq-0.4.0/aur/PKGBUILD .
-makepkg --printsrcinfo > .SRCINFO
+git push --delete origin v0.4.0 && git tag -d v0.4.0
+```
+
+## Package managers (the primary channels)
+
+All three build from the source tarball of the tag, so they work on any
+platform the tool supports and need no uploaded binaries.
+
+### Homebrew — macOS and Linuxbrew
+
+```sh
+# sha256 of the tag tarball
+source_sha=$(curl -sL https://github.com/topce/fq/archive/refs/tags/v0.4.0.tar.gz \
+             | shasum -a 256 | cut -d' ' -f1)
+
+# render the formula from the template and publish it in the tap
+packaging/render.sh 0.4.0 /dev/null /tmp/fq-0.4.0 "$source_sha" || true   # see note
+cp /tmp/fq-0.4.0/homebrew/fq.rb "$(brew --repo topce/fq)/Formula/fq.rb"
+git -C "$(brew --repo topce/fq)" commit -am "fq 0.4.0" && git -C "$(brew --repo topce/fq)" push
+```
+
+`packaging/render.sh` needs a `SHA256SUMS` file because it renders every
+manifest; to fill in only the Homebrew formula, substitute the placeholder
+directly:
+
+```sh
+sed -e "s|@VERSION@|0.4.0|g" \
+    -e "s|@SHA256_SOURCE_TARBALL@|$source_sha|g" \
+    packaging/homebrew/fq.rb.in > /tmp/fq.rb
+```
+
+Verify before pushing (and after):
+
+```sh
+brew update
+brew info topce/fq/fq            # version, URL, sha256
+brew audit --strict topce/fq/fq  # style and correctness
+brew install topce/fq/fq && brew test topce/fq/fq
+```
+
+`brew bump-formula-pr --url=... --sha256=... topce/fq/fq` does the same through
+a PR if you prefer the review step.
+
+### AUR (Arch Linux)
+
+```sh
+source_sha=$(curl -sL https://github.com/topce/fq/archive/refs/tags/v0.4.0.tar.gz \
+             | shasum -a 256 | cut -d' ' -f1)
+sed -e "s|@VERSION@|0.4.0|g" -e "s|@SHA256_SOURCE_TARBALL@|$source_sha|g" \
+    packaging/aur/PKGBUILD.in > PKGBUILD
+makepkg --printsrcinfo > .SRCINFO      # from a checkout of aur@aur.archlinux.org/fq
 git add PKGBUILD .SRCINFO && git commit -m "fq 0.4.0" && git push
 ```
 
-A `fq-bin` package using the release tarball is a reasonable alternative when
-users should not need an OCaml toolchain.
+`makepkg -si` in a clean chroot (`makechrootpkg`) before pushing is worth the
+few minutes: it also runs the `check()` suite.
 
-**4. .deb / .rpm (optional)** — `nfpm` turns the Linux tarball into native
-packages; attach them to the same release:
+### opam (macOS and Linux)
+
+```sh
+opam publish --tag v0.4.0 https://github.com/topce/fq
+```
+
+That opens a PR against `opam-repository`; after it is merged, `opam install fq`
+works. opam-repository does not test the native Windows port, which is why
+Windows has its own channels below.
+
+### Not suitable
+
+**Snap and Flatpak cannot ship fq.** Both confine the application: it would see
+only its own sandbox and could neither enumerate nor kill anything outside it,
+so the tool would list an empty world and quit exactly nothing. A Docker image
+has the same problem unless run with `--pid=host`, and even then it needs the
+host's `/proc`. Distro packages, the source tarball and Homebrew are the honest
+options.
+
+## Prebuilt binaries (optional, hand-made)
+
+Only do this when someone can build and test the artifact on the real platform.
+The archives are named `fq-<version>-<target>` (with `fq` or `fq.exe` inside,
+plus `README.md`, `LICENSE`, `CHANGELOG.md`), where `<target>` is one of
+`linux-x86_64`, `linux-x86_64-static`, `macos-x86_64`, `macos-arm64`,
+`windows-x86_64`.
+
+**macOS** (on the machine, native architecture):
+
+```sh
+dune build --profile release
+name=fq-0.4.0-macos-arm64                     # or macos-x86_64 on an Intel Mac
+mkdir -p dist/$name && cp _build/default/bin/main.exe dist/$name/fq
+cp README.md LICENSE CHANGELOG.md dist/$name/
+chmod 755 dist/$name/fq
+(cd dist && tar -czf $name.tar.gz $name)
+./dist/$name/fq --version && ./dist/$name/fq --help > /dev/null
+```
+
+**Linux** (on a Linux machine or VM — build on the *oldest* distribution you
+want to support, so the glibc requirement stays low):
+
+```sh
+dune build --profile release
+name=fq-0.4.0-linux-x86_64
+mkdir -p dist/$name && cp _build/default/bin/main.exe dist/$name/fq
+cp README.md LICENSE CHANGELOG.md dist/$name/
+chmod 755 dist/$name/fq
+(cd dist && tar -czf $name.tar.gz $name)
+./dist/$name/fq --version && ./dist/$name/fq --list
+```
+
+A fully static musl build (`linux-x86_64-static`, for Alpine and anywhere the
+glibc version is a problem) needs that toolchain — in an opam switch created
+with `ocaml-variants.<version>+options,ocaml-option-musl,ocaml-option-static`:
+
+```sh
+dune build --profile release && file _build/default/bin/main.exe   # "statically linked"
+```
+
+**Windows** (on a Windows machine, with a native OCaml ≥ 5.1 and opam 2.2+):
+
+```powershell
+opam install . --deps-only
+dune build --profile release
+$name = "fq-0.4.0-windows-x86_64"
+New-Item -ItemType Directory -Force "dist/$name" | Out-Null
+Copy-Item _build/default/bin/main.exe "dist/$name/fq.exe"
+Copy-Item README.md,LICENSE,CHANGELOG.md "dist/$name/"
+Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
+.\dist\$name\fq.exe --version
+```
+
+**Checksums and upload:**
+
+```sh
+cd dist && sha256sum ./*.tar.gz ./*.zip > SHA256SUMS && cat SHA256SUMS
+gh release upload v0.4.0 ./*.tar.gz ./*.zip SHA256SUMS
+```
+
+`packaging/render.sh <version> SHA256SUMS <outdir> [<source-sha256>]` then fills
+in the Scoop, WinGet, AUR, nfpm and Homebrew manifests from that `SHA256SUMS`
+(the Windows zip must be present for the Scoop and WinGet ones), so no hash is
+ever typed by hand. Attachment order matters: create the release first, upload
+the archives, then render and publish the manifests — a manifest that points at
+a URL which does not exist yet is a broken install for whoever tries first.
+
+`.deb` and `.rpm` come from the Linux tarball via `packaging/nfpm.yaml.in`:
 
 ```sh
 tar -xzf fq-0.4.0-linux-x86_64.tar.gz
@@ -147,176 +233,115 @@ nfpm package -f /tmp/fq-0.4.0/nfpm.yaml -p rpm -t fq-0.4.0.x86_64.rpm
 gh release upload v0.4.0 fq_0.4.0_amd64.deb fq-0.4.0.x86_64.rpm
 ```
 
-A hosted apt/dnf repository (Cloudsmith, Gemfury, or a GitHub Pages `dists/`
-tree) is the next step if the packages get traction; until then the release
-page is the distribution point.
+## Windows package managers (need a Windows build)
 
-**5. opam** (source installs for macOS and Linux — the natural channel for
-OCaml users):
+Both point at the Windows zip, so they can only be published once that artifact
+exists on the release page.
 
-```sh
-opam publish --tag v0.4.0 https://github.com/topce/fq
-```
-
-That opens a PR against `opam-repository`; once merged, `opam install fq`
-works. Windows users are not served by opam-repository (its CI does not test
-the native Windows port), which is what the zip, Scoop and WinGet are for.
-
-**Do not ship fq as a Snap or Flatpak.** Both sandbox the application: it would
-see only its own confined processes and could not enumerate or kill anything
-outside the sandbox, so the tool would list an empty world and quit exactly
-nothing. A Docker image has the same problem unless run with `--pid=host`, and
-even then it needs a matching `/proc`. Distro packages, the tarball and
-Homebrew are the honest options.
-
-### Windows
-
-**1. Release zip (already done by the workflow).** Unblock and run:
-
-```powershell
-Expand-Archive fq-0.4.0-windows-x86_64.zip -DestinationPath .
-.\fq-0.4.0-windows-x86_64\fq.exe --version
-```
-
-**2. Scoop** — a bucket repository makes the tool installable and updatable:
+### Scoop
 
 ```sh
+# render first: packaging/render.sh 0.4.0 SHA256SUMS /tmp/fq-0.4.0 "$source_sha"
 cp /tmp/fq-0.4.0/scoop/fq.json ../scoop-bucket/bucket/fq.json
-git -C ../scoop-bucket add bucket/fq.json && git -C ../scoop-bucket commit -m "fq 0.4.0" && git -C ../scoop-bucket push
+git -C ../scoop-bucket commit -am "fq 0.4.0" && git -C ../scoop-bucket push
 ```
 
 Users then run `scoop bucket add topce https://github.com/topce/scoop-bucket`
 once and `scoop install topce/fq` afterwards. The manifest carries `checkver`
-and `autoupdate`, so `scoop update` picks new releases up automatically, reading
-the hash straight out of our `SHA256SUMS`. (`ScoopInstaller/GithubActions` can
-automate the bucket commit.) The main `Extras` bucket has notability criteria —
-propose it there only if the project gets that far.
+and `autoupdate`, which read the hash out of our `SHA256SUMS`, so `scoop update`
+picks new releases up on its own. The main `Extras` bucket has notability
+criteria — propose it there only if the project gets that far.
 
-**3. WinGet** — the first version must be submitted by hand; every later one is
-automated by `.github/workflows/publish-winget.yml`:
+### WinGet
 
 ```sh
-# first submission, from a fork of microsoft/winget-pkgs
 mkdir -p ~/winget-pkgs/manifests/t/Topce/Fq/0.4.0
 cp /tmp/fq-0.4.0/winget/Topce.Fq*.yaml ~/winget-pkgs/manifests/t/Topce/Fq/0.4.0/
 # on Windows: winget validate --manifest <dir>   (or: wingetcreate validate <dir>)
-cd ~/winget-pkgs && git checkout -b topce-fq-0.4.0 && git add manifests/t/Topce && git commit -m "Add Topce.Fq 0.4.0" && gh pr create --repo microsoft/winget-pkgs
+cd ~/winget-pkgs && git checkout -b topce-fq-0.4.0 \
+  && git add manifests/t/Topce && git commit -m "Add Topce.Fq 0.4.0" \
+  && gh pr create --repo microsoft/winget-pkgs
 ```
 
-After that PR is merged, set the `WINGET_TOKEN` secret (classic PAT,
-`public_repo` scope) and the workflow opens the update PR for each release. The
-manifests install fq as a **portable** package: WinGet unpacks the zip and puts
-`fq.exe` on `PATH` under the alias `fq`.
+There is no automation for this any more: every version is a PR to
+`microsoft/winget-pkgs`, reviewed by their moderators. The manifests install fq
+as a **portable** package — WinGet unpacks the zip and puts `fq.exe` on `PATH`
+under the alias `fq`.
 
-**4. Optional** — Chocolatey (needs a community account, a moderation queue and
-a `chocolateyinstall.ps1`), or an MSYS2 package for people already in that
-ecosystem. Neither is required: the zip, Scoop and WinGet cover the platform.
-
-## Staged rollout (canary)
+## Staged rollout
 
 A CLI that kills processes has one catastrophic failure mode — killing the
-wrong thing — and releases cannot be un-downloaded, so releases go out in two
-stages:
+wrong thing — and a published version cannot be un-downloaded, so anything
+risky goes out in two stages:
 
-1. **Canary** — tag `v0.4.0-rc.1`. The workflow publishes it as a prerelease:
-   no channel points at it (WinGet's publish job only fires for full releases),
-   so it is visible only to people who look for it.
-2. **Verify on real machines** (see below) — at least one real Linux desktop
-   session (X11 *and* Wayland if possible), one Windows 11 machine, one Mac.
-3. **Promote** — either edit the release and untick *prerelease*, or push the
-   final `v0.4.0` tag. Promotion is what triggers the WinGet submission.
-4. **Announce and publish the channels** — Homebrew, Scoop, AUR, opam. Use the
-   same rendered manifests; only the version string changes.
-5. **Watch the first 24 hours** — issues, download counts, and any report of a
-   wrong application being killed (that one is a stop-ship).
+1. **Canary**: `gh release create v0.4.0-rc.1 --prerelease --latest=false` (or
+   publish the tag with `--prerelease`). No channel points at a prerelease, so
+   only people who look for it see it.
+2. **Verify on real machines** — at least one real Linux desktop session (X11
+   *and* Wayland if possible), one Windows machine, one Mac (see below).
+3. **Promote**: edit the release and untick *prerelease*, or push the final tag.
+   Only now update Homebrew, AUR, opam, Scoop and WinGet.
+4. **Watch the first 24 hours**: issues, downloads, and any report of a wrong
+   application being killed (that one is a stop-ship).
 
-## Post-release verification
+## Verification
 
-Run these against the *downloaded artifacts*, on real machines, before
-promoting anything:
+Run these against what users actually download, on real machines:
 
 ```sh
-sha256sum -c SHA256SUMS                     # Linux/macOS
-gh attestation verify fq-0.4.0-<target>.tar.gz --repo topce/fq
+sha256sum -c SHA256SUMS
 ```
 
 | Platform | Checks |
 | --- | --- |
-| Linux | `fq --list` lists your desktop apps and not shells; `fq` picker kills the chosen app only; `fq --others -y -s` keeps the terminal alive and suspends; `fq -b wmctrl --list` agrees on X11 |
-| Windows | `fq --list` shows windowed apps; `fq -y notepad` closes Notepad with unsaved text; `fq --others -y` does **not** close Windows Terminal; `fq --pid <unused> -y` exits 0 |
+| Linux | `fq --list` lists your desktop apps and not shells; the picker kills only the chosen app; `fq --others -y -s` keeps the terminal alive and suspends; `fq -b wmctrl --list` agrees on X11; the static build runs on Alpine |
+| Windows | `fq --list` shows windowed apps; `fq -y notepad` closes Notepad with unsaved text; `fq --others -y` does **not** close Windows Terminal; `fq --pid <unused> -y` exits 0; SmartScreen warning matches the unsigned-build note |
 | macOS | `fq --list` matches the Force Quit dialog (⌥⌘⎋); `fq -y Safari` behaves like the dialog; `brew test topce/fq/fq` passes |
 
 ## Rollback
 
-Nothing here needs a redeploy: the release page and the channel manifests are
-the state.
-
 | Situation | Action | Time |
 | --- | --- | --- |
-| Bad artifact, channel not yet updated | `gh release delete v0.4.0 --yes --cleanup-tag`, fix, re-tag | minutes |
-| Bad release already announced | `gh release edit v0.4.0 --prerelease` (stops WinGet/Scoop autoupdate picking it up), then `gh release delete-asset v0.4.0 <file>` and publish a fixed patch release | minutes |
-| Bad Homebrew formula | revert the tap commit (`git -C ../homebrew-fq revert HEAD && git push`) | minutes |
+| Bad tag, nothing published yet | `git push --delete origin v0.4.0 && git tag -d v0.4.0`, fix, re-tag | minutes |
+| Bad release page, no channel updated | `gh release edit v0.4.0 --prerelease` (stops Scoop `autoupdate`), `gh release delete-asset`, publish a fixed patch release | minutes |
+| Bad Homebrew formula | `git -C "$(brew --repo topce/fq)" revert HEAD && git -C "$(brew --repo topce/fq)" push` | minutes |
+| Bad AUR package | revert the PKGBUILD commit and push (or delete the package) | minutes |
 | Bad Scoop manifest | revert the bucket commit; users who already installed keep the binary but `scoop update` will not move them further | minutes |
-| Bad WinGet manifest | open a PR removing the version directory (or supersede it with a patch release — WinGet keeps history) | days (moderation) |
-| Bad AUR package | `git revert && git push`; deleting the package outright also removes it for new users | minutes |
+| Bad WinGet manifest | open a PR removing the version directory, or supersede it with a patch release | days (moderation) |
 | Bad opam release | opam-repository has no yank: publish a patch release, or a PR marking the version `available: false` | days |
-| Wrong application killed (any version) | treat as a stop-ship: mark the release prerelease, open a pinned issue with the reproduction, and do not publish the channels until a fix is out | immediately |
+| Wrong application killed (any version) | stop-ship: mark the release prerelease, open a pinned `safety` issue with the reproduction, publish nothing new until it is fixed | immediately |
 
-Rollback never restores users who already downloaded the bad artifact — that is
-what the canary stage is for.
+Nothing restores the copies people already downloaded — that is what the canary
+stage is for.
 
 ## Monitoring and upkeep
 
-* **CI** — `ci.yml` runs on every push and weekly on a schedule, so runner and
-  toolchain drift shows up before a release, not during one.
+* **Issues** — label anything about the wrong process being killed as `safety`;
+  an open `safety` issue freezes releases until it is fixed.
 * **Downloads** — `gh release view v0.4.0 --json assets --jq '.assets[] | "\(.name) \(.downloadCount)"'`
-  gives a rough adoption signal per platform, which is also the hint about which
-  channel deserves automation next.
-* **Issues** — label anything about the wrong process being killed as
-  `safety`, and treat an open `safety` issue as a release freeze until fixed.
-* **Channel drift** — after each release, check that Scoop, WinGet, AUR and the
-  tap show the new version; the `autoupdate` blocks in the Scoop manifest and
-  the WinGet workflow are the only moving parts.
-* **Dependencies** — Dependabot (`.github/dependabot.yml`) keeps the actions
-  current; the project itself has no third-party OCaml dependencies, so there
-  is no lockfile to audit.
+  shows which platform people actually take, which is the hint about which
+  channel deserves attention.
+* **Channel drift** — after publishing a release, check that Homebrew, AUR,
+  opam, Scoop and WinGet all show the new version.
+* **Local test runs** — with no CI, the suite is only as good as the habit of
+  running it: `dune runtest` before every commit that touches behaviour, and on
+  a Windows machine before a release that claims Windows support.
+* **Dependencies** — the project has no third-party OCaml dependencies, so there
+  is no lockfile to audit; only the toolchain (OCaml, dune) moves.
 
-## Pre-launch checklist
+## Known gaps
 
-Adapted to a CLI with no server side; the web-specific items (CSP, CORS, Core
-Web Vitals, database migrations) do not apply.
-
-- [ ] `dune build` and `dune runtest` green locally, and `ci.yml` green on the
-      tagged commit for all three platforms
-- [ ] Version agrees in `dune-project`, `lib/fq.ml`, `CHANGELOG.md` and the tag
-      (the release job enforces this)
-- [ ] `CHANGELOG.md` describes every user-visible change, including behaviour
-      changes and fixes
-- [ ] README install instructions match what actually exists for this version
-- [ ] No secrets, tokens or machine-specific paths in the tree
-- [ ] `fq --help` on each platform shows that platform's backends, protected
-      applications and sleep command
-- [ ] Rollback plan understood (table above) and the canary tag used for
-      anything risky
-- [ ] Channel manifests rendered from the published `SHA256SUMS` — never
-      hand-edited hashes
-- [ ] Post-release verification table run on at least one real machine per
-      platform before promoting the canary
-
-## Known gaps before announcing widely
-
-* **Windows binaries are unsigned.** SmartScreen will show "Windows protected
-  your PC" on first run, and security software may flag a process-killing tool
-  as a potentially unwanted application. Fix by signing with Azure Trusted
-  Signing or [SignPath.io](https://signpath.io) (free for OSS), and by
-  submitting a false-positive report to Microsoft if Defender complains. Until
-  then the release notes should say the binary is unsigned and give the
-  sha256 so users can verify.
-* **macOS binaries are unsigned and unnotarized.** The Homebrew formula builds
-  from source, so its users never see a quarantine prompt; users who download
-  the tarball in a browser may need `xattr -d com.apple.quarantine fq`.
-* **No Linux ARM64 build**, and no Windows ARM64 build (upstream toolchain
-  limitation). Windows on ARM runs the x64 binary through emulation.
-* **Linux listing is a heuristic.** The README says what it includes and what
-  it hides; a user who cannot find an application they launched from a terminal
+* **Windows binaries are unsigned.** SmartScreen shows "Windows protected your
+  PC" on first run, and security software may flag a process-killing tool as a
+  potentially unwanted application. Fix by signing with Azure Trusted Signing or
+  [SignPath.io](https://signpath.io) (free for OSS), and by reporting a false
+  positive to Microsoft if Defender complains. Until then say so in the release
+  notes and publish the sha256 so users can verify.
+* **macOS binaries are unsigned and unnotarized.** Homebrew builds from source,
+  so its users never see a quarantine prompt; anyone downloading a tarball in a
+  browser may need `xattr -d com.apple.quarantine fq`.
+* **No Linux ARM64 or Windows ARM64 builds** — neither target is built today.
+  Windows on ARM runs the x64 build through emulation.
+* **Linux listing is a heuristic.** The README says what it includes and what it
+  hides; a user who cannot find an application they launched from a terminal
   should be pointed at `fq --pid` or `-b wmctrl`.

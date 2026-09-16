@@ -30,32 +30,35 @@ It is written in OCaml (stdlib + `unix` only, no third-party dependencies).
 | Windows | Scoop | `scoop bucket add topce https://github.com/topce/scoop-bucket` then `scoop install topce/fq` |
 | any | from source | see below |
 
-Release binaries (tarballs for Linux/macOS, a zip for Windows, with
-`SHA256SUMS` and a build-provenance attestation) are attached to every
-[GitHub release](https://github.com/topce/fq/releases):
+Homebrew, opam and the AUR build fq from the tag's source, so they work
+without any prebuilt binary (stdlib + `unix` only — the build takes seconds).
+When a release also carries hand-built archives, they are attached to the
+[GitHub release](https://github.com/topce/fq/releases) as
+`fq-<version>-<target>.tar.gz` (Linux, macOS) or `.zip` (Windows) with a
+`SHA256SUMS` file:
 
 ```sh
-# Linux, glibc ≥ 2.35 (Ubuntu 22.04+, Debian 12+, RHEL 9+)
-curl -LO https://github.com/topce/fq/releases/latest/download/fq-0.4.0-linux-x86_64.tar.gz
+# the target names are linux-x86_64, linux-x86_64-static, macos-x86_64,
+# macos-arm64 and windows-x86_64
+curl -LO https://github.com/topce/fq/releases/download/v0.4.0/fq-0.4.0-linux-x86_64.tar.gz
+curl -LO https://github.com/topce/fq/releases/download/v0.4.0/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
 tar -xzf fq-0.4.0-linux-x86_64.tar.gz
 sudo install -m755 fq-0.4.0-linux-x86_64/fq /usr/local/bin/fq
-gh attestation verify fq-0.4.0-linux-x86_64.tar.gz --repo topce/fq   # optional
 ```
 
-A `-linux-x86_64-static` build (musl) is published alongside it for Alpine,
-NixOS and anywhere the glibc version is a problem, and Windows on ARM runs the
-x64 zip through emulation. The Homebrew formula builds from source with
-Homebrew's ocaml + dune — OCaml stdlib + `unix` only, so the build takes
-seconds.
+Not every release ships every target — `docs/RELEASING.md` explains how each
+one is built by hand.
 
 > **Name clash:** an unrelated message broker is also published as `fq` in
 > homebrew-core, so plain `brew install fq` installs *that* tool. Always use
 > the fully qualified `brew install topce/fq/fq`.
 
-> The WinGet, Scoop, AUR and opam entries are published from `packaging/` by
-> the release process described in [docs/RELEASING.md](docs/RELEASING.md). When
-> a channel is not live yet for the version you want, build from source.
-> Windows binaries are currently unsigned, so SmartScreen warns on first run —
+> The WinGet, Scoop, AUR and opam entries are published by hand from
+> `packaging/`, and a release only carries the archives somebody built and
+> tested on that platform; [docs/RELEASING.md](docs/RELEASING.md) is the
+> runbook. When a channel is not live yet for the version you want, build from
+> source. Windows binaries are unsigned, so SmartScreen warns on first run —
 > check the sha256 in `SHA256SUMS` before running them.
 
 **From source** (requires OCaml ≥ 5 and dune; on Windows use a native OCaml
@@ -300,14 +303,12 @@ awake.
 * `test/test_platforms.sh` — end-to-end checks for the Linux and Windows code
   paths (backend selection, protected names, the real Linux kill path against
   fixture processes, the stubbed Windows kill path and Linux sleep command).
-* `.github/workflows/` — CI on Linux, macOS and Windows, and the release
-  pipeline that builds, tests, packages, checksums and attests the binaries on
-  a `vX.Y.Z` tag.
 * `packaging/` — release manifests for the other channels (Homebrew, Scoop,
   WinGet, AUR, nfpm) and `packaging/render.sh`, which fills them in from a
-  published `SHA256SUMS`.
-* `docs/RELEASING.md` — the release runbook: channels, canary stage,
-  verification, rollback and monitoring.
+  `SHA256SUMS` file.
+* `docs/RELEASING.md` — the release runbook: tagging, the package managers,
+  building the optional archives by hand, the canary stage, verification,
+  rollback and monitoring.
 
 ## Notes
 
