@@ -94,6 +94,8 @@ fq [OPTIONS] [APP]
   fq --others -y           same, non-interactive
   fq --others -f           ... but also quit the protected system ones
   fq -p 1234               force quit by PID
+  fq -s                    put the machine to sleep (asks first; -y skips
+                           the question)
   fq -s "Safari"           force quit Safari, then put the machine to sleep
   fq --others -y -s        force quit every other app, then put the machine to
                            sleep — this terminal keeps running, and the machine
@@ -124,7 +126,7 @@ Windows consoles, which have no single-key mode, whole lines are read too).
 | `-a`, `--all` | force quit every running application (protected system ones are skipped — see below) |
 | `-o`, `--others` | force quit every running application except the application running this terminal and the protected system ones |
 | `-p`, `--pid PID` | force quit the process with this PID |
-| `-s`, `--sleep` | after force-quitting, also put the machine to sleep — also when there was nothing to quit |
+| `-s`, `--sleep` | after force-quitting, also put the machine to sleep — also when there was nothing to quit; on its own, with no APP and no other action, it just puts the machine to sleep |
 | `-y`, `--yes` | force quit without asking for confirmation |
 | `-f`, `--force` | also allow force-quitting protected system applications |
 | `-b`, `--backend BACKEND` | enumeration backend — only the backends of the current platform are accepted: `lsappinfo` (macOS, default), `osascript` (macOS), `procfs` (Linux, default), `wmctrl` (Linux/X11), `tasklist` (Windows, default), `powershell` (Windows) |
@@ -226,6 +228,11 @@ terminal cannot be recognised without it.
 all succeeded — handy before walking away from the machine. The confirmation
 asks for both together ("… and put the computer to sleep?"), and if any
 force-quit fails the machine is *not* put to sleep and fq exits 1.
+
+With no application name and no other action — just `fq -s` — the
+interactive picker is skipped and the sleep is the whole job: fq asks
+"Put the computer to sleep? [y/N]" and does it (with `-y`, no question at
+all). Force-quitting is never implied by `-s` on its own.
 
 The sleep is a step of its own, so it happens even when there was nothing to
 quit: `fq --others -y -s` from a terminal whose application is protected (or

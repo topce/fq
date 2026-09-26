@@ -85,8 +85,14 @@ run "all, only protected apps (-y): sleeps"       ''  1 0 --all -y -s
 run "others, nothing to quit, confirmed"          'y' 1 0 -o -s
 run "others, nothing to quit, declined"           'n' 0 0 -o -s
 run "others, nothing to quit, cancelled (EOF)"    ''  0 0 -o -s
-run "-s alone prompts; EOF cancels, no sleep"     ''  0 0 -s
+run "-s alone, no answer (EOF): no sleep"         ''  0 0 -s
 run "others, nothing to quit, no -s: no sleep"    ''  0 0 -o -y
+
+# `fq -s` on its own is a sleep mode, not the application picker: one 'y'
+# puts the machine to sleep, anything else cancels, and -y skips the prompt.
+run "-s alone, confirmed: sleeps (no picker)"     'y' 1 0 -s
+run "-s alone, declined: no sleep"                'n' 0 0 -s
+run "-s alone, -y: sleeps (no picker)"            ''  1 0 -y -s
 
 # A victim is present: the sleep is part of the one confirmation, so a single
 # 'y' must both quit and sleep — never a second prompt.
@@ -139,9 +145,9 @@ run "Windows protected name refused without -f"    'y' 0 1 explorer -s -y
 run "Windows protected pid refused without -f"     'y' 0 1 --pid 424249 -s -y
 FQ_EXTRA_ENV=""
 
-# The interactive picker is not reached when an action is given, but a bare
-# invocation with -s must not sleep when the picker is cancelled at EOF.
-run "picker cancelled: no sleep"                  ''  0 0 -s
+# A bare invocation with -s is its own sleep mode: EOF at the sleep prompt
+# cancels, so nothing is suspended.
+run "-s alone, cancelled at EOF: no sleep"        ''  0 0 -s
 
 # A machine with no GUI applications at all: nothing to quit, but -s was
 # asked for, so the sleep is offered on its own (never silently skipped).

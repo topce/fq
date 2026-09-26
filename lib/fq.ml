@@ -22,7 +22,7 @@
    protected-system-application list, --others, and -s/--sleep — behaves the
    same everywhere. *)
 
-let version = "0.4.0"
+let version = "0.5.0"
 
 (* ------------------------------------------------------------------ *)
 (* Applications                                                       *)

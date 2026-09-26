@@ -258,7 +258,8 @@ Options:
                          the protected system ones listed below
   -p, --pid PID          force quit the process with this PID
   -s, --sleep            sleep after the force-quits, even when there
-                         was nothing to quit (@SLEEPCMD@)
+                         was nothing to quit; on its own, with no APP,
+                         just put the machine to sleep (@SLEEPCMD@)
   -y, --yes              force quit without asking for confirmation
   -f, --force            allow force-quitting a protected system application
   -b, --backend BACKEND  enumeration backend: @BACKENDS@
@@ -283,10 +284,11 @@ group: a process that leads or shares fq's group is treated as self by
 itself before it could do anything else, such as the requested sleep).
 
 With -s/--sleep @MACHINE@ is put to sleep once the force-quits are done, so a
-confirming answer also asks for the sleep ("… and @SLEEP@?"). The sleep is a
-step of its own, so it happens even when there was nothing to quit: with
-nothing to quit, fq asks about the sleep alone ("@SLEEPCAP@? [y/N]") unless -y
-is given. When the force-quit list includes the application running this
+confirming answer also asks for the sleep ("… and @SLEEP@?"). On its own,
+with no APP and no other action, -s/--sleep skips the picker and just asks
+about the sleep. The sleep is a step of its own, so it happens even when
+there was nothing to quit: with nothing to quit, fq asks about the sleep
+alone ("@SLEEPCAP@? [y/N]") unless -y is given. When the force-quit list includes the application running this
 terminal (--all, or picking the terminal in the interactive list), that app is
 force-quit last and the sleep is handed to a detached helper process armed
 just beforehand, so @MACHINE@ still goes to sleep even if killing the terminal
@@ -304,6 +306,8 @@ Examples:
   fq --others              force quit every other application; this terminal
                            and the protected ones keep running
   fq --others -f           same, but also quit the protected system ones
+  fq -s                    just put @MACHINE@ to sleep (asks first; -y
+                           skips the question)
   fq -s APP                force quit APP, then @SLEEP@
   fq --others -y -s        force quit every other app, then sleep; this
                            terminal keeps running and the sleep happens even
@@ -574,6 +578,12 @@ let sleep_after_quits ~sleep ~yes ~quits_ok =
 (* ------------------------------------------------------------------ *)
 (* Modes                                                              *)
 (* ------------------------------------------------------------------ *)
+
+(* `fq -s` with no application and no other action: force-quit nothing and
+   just offer the sleep. This is a mode of its own — the interactive picker
+   is not shown — so passing -s always ends in the sleep being asked for
+   (and performed when -y is given). *)
+let sleep_mode ~yes = sleep_after_quits ~sleep:true ~yes ~quits_ok:true
 
 let print_list apps =
   List.iter (fun a -> Printf.printf "%-7d %s\n%!" a.pid a.name) apps
@@ -938,7 +948,9 @@ let () =
     usage_error "--list cannot be combined with --sleep";
   ensure_supported ();
   match !action with
-  | None -> interactive ~force:!force ~sleep:!sleep (get_apps !backend_opt)
+  | None ->
+    if !sleep then sleep_mode ~yes:!yes
+    else interactive ~force:!force ~sleep:!sleep (get_apps !backend_opt)
   | Some List_apps -> print_list (get_apps !backend_opt)
   | Some Kill_all ->
     all_mode ~yes:!yes ~force:!force ~sleep:!sleep ~backend_opt:!backend_opt

@@ -32,7 +32,7 @@ by reverting a channel commit), never by rolling back a pipeline.
 
 ## Before you tag
 
-- [ ] `dune build && dune runtest` is green (59 unit checks, 31 sleep checks,
+- [ ] `dune build && dune runtest` is green (67 unit checks, 34 sleep checks,
       21 platform checks on macOS/Linux; Windows runs the unit tests).
 - [ ] The suite has been run on every platform you intend to claim support for:
       macOS and Linux locally, Windows on a Windows machine or VM
@@ -54,7 +54,7 @@ The version gate is manual now, so check it explicitly — a release whose
 `--version` lies is worse than no release:
 
 ```sh
-tag=v0.4.0
+tag=v0.5.0
 printf 'dune-project: %s\nlib/fq.ml:    %s\nCHANGELOG:    %s\n' \
   "$(sed -n 's/^(version \(.*\))$/\1/p' dune-project)" \
   "$(sed -n 's/^let version = "\(.*\)"$/\1/p' lib/fq.ml)" \
@@ -64,23 +64,23 @@ printf 'dune-project: %s\nlib/fq.ml:    %s\nCHANGELOG:    %s\n' \
 ## Tagging
 
 ```sh
-git commit -am "Release v0.4.0"      # if the version bump is not committed yet
-git tag -a v0.4.0 -m "fq 0.4.0"
+git commit -am "Release v0.5.0"      # if the version bump is not committed yet
+git tag -a v0.5.0 -m "fq 0.5.0"
 git push origin main
-git push origin v0.4.0
+git push origin v0.5.0
 ```
 
 Then publish the GitHub release page (source only, unless you built artifacts):
 
 ```sh
-gh release create v0.4.0 --title "fq 0.4.0" --generate-notes
+gh release create v0.5.0 --title "fq 0.5.0" --generate-notes
 # or, for a canary: --prerelease --latest=false
 ```
 
 A tag is cheap to delete **as long as no channel points at it yet**:
 
 ```sh
-git push --delete origin v0.4.0 && git tag -d v0.4.0
+git push --delete origin v0.5.0 && git tag -d v0.5.0
 ```
 
 ## Package managers (the primary channels)
@@ -92,13 +92,13 @@ platform the tool supports and need no uploaded binaries.
 
 ```sh
 # sha256 of the tag tarball
-source_sha=$(curl -sL https://github.com/topce/fq/archive/refs/tags/v0.4.0.tar.gz \
+source_sha=$(curl -sL https://github.com/topce/fq/archive/refs/tags/v0.5.0.tar.gz \
              | shasum -a 256 | cut -d' ' -f1)
 
 # render the formula from the template and publish it in the tap
-packaging/render.sh 0.4.0 /dev/null /tmp/fq-0.4.0 "$source_sha" || true   # see note
-cp /tmp/fq-0.4.0/homebrew/fq.rb "$(brew --repo topce/fq)/Formula/fq.rb"
-git -C "$(brew --repo topce/fq)" commit -am "fq 0.4.0" && git -C "$(brew --repo topce/fq)" push
+packaging/render.sh 0.5.0 /dev/null /tmp/fq-0.5.0 "$source_sha" || true   # see note
+cp /tmp/fq-0.5.0/homebrew/fq.rb "$(brew --repo topce/fq)/Formula/fq.rb"
+git -C "$(brew --repo topce/fq)" commit -am "fq 0.5.0" && git -C "$(brew --repo topce/fq)" push
 ```
 
 `packaging/render.sh` needs a `SHA256SUMS` file because it renders every
@@ -106,7 +106,7 @@ manifest; to fill in only the Homebrew formula, substitute the placeholder
 directly:
 
 ```sh
-sed -e "s|@VERSION@|0.4.0|g" \
+sed -e "s|@VERSION@|0.5.0|g" \
     -e "s|@SHA256_SOURCE_TARBALL@|$source_sha|g" \
     packaging/homebrew/fq.rb.in > /tmp/fq.rb
 ```
@@ -126,12 +126,12 @@ a PR if you prefer the review step.
 ### AUR (Arch Linux)
 
 ```sh
-source_sha=$(curl -sL https://github.com/topce/fq/archive/refs/tags/v0.4.0.tar.gz \
+source_sha=$(curl -sL https://github.com/topce/fq/archive/refs/tags/v0.5.0.tar.gz \
              | shasum -a 256 | cut -d' ' -f1)
-sed -e "s|@VERSION@|0.4.0|g" -e "s|@SHA256_SOURCE_TARBALL@|$source_sha|g" \
+sed -e "s|@VERSION@|0.5.0|g" -e "s|@SHA256_SOURCE_TARBALL@|$source_sha|g" \
     packaging/aur/PKGBUILD.in > PKGBUILD
 makepkg --printsrcinfo > .SRCINFO      # from a checkout of aur@aur.archlinux.org/fq
-git add PKGBUILD .SRCINFO && git commit -m "fq 0.4.0" && git push
+git add PKGBUILD .SRCINFO && git commit -m "fq 0.5.0" && git push
 ```
 
 `makepkg -si` in a clean chroot (`makechrootpkg`) before pushing is worth the
@@ -140,7 +140,7 @@ few minutes: it also runs the `check()` suite.
 ### opam (macOS and Linux)
 
 ```sh
-opam publish --tag v0.4.0 https://github.com/topce/fq
+opam publish --tag v0.5.0 https://github.com/topce/fq
 ```
 
 That opens a PR against `opam-repository`; after it is merged, `opam install fq`
@@ -168,7 +168,7 @@ plus `README.md`, `LICENSE`, `CHANGELOG.md`), where `<target>` is one of
 
 ```sh
 dune build --profile release
-name=fq-0.4.0-macos-arm64                     # or macos-x86_64 on an Intel Mac
+name=fq-0.5.0-macos-arm64                     # or macos-x86_64 on an Intel Mac
 mkdir -p dist/$name && cp _build/default/bin/main.exe dist/$name/fq
 cp README.md LICENSE CHANGELOG.md dist/$name/
 chmod 755 dist/$name/fq
@@ -181,7 +181,7 @@ want to support, so the glibc requirement stays low):
 
 ```sh
 dune build --profile release
-name=fq-0.4.0-linux-x86_64
+name=fq-0.5.0-linux-x86_64
 mkdir -p dist/$name && cp _build/default/bin/main.exe dist/$name/fq
 cp README.md LICENSE CHANGELOG.md dist/$name/
 chmod 755 dist/$name/fq
@@ -202,7 +202,7 @@ dune build --profile release && file _build/default/bin/main.exe   # "statically
 ```powershell
 opam install . --deps-only
 dune build --profile release
-$name = "fq-0.4.0-windows-x86_64"
+$name = "fq-0.5.0-windows-x86_64"
 New-Item -ItemType Directory -Force "dist/$name" | Out-Null
 Copy-Item _build/default/bin/main.exe "dist/$name/fq.exe"
 Copy-Item README.md,LICENSE,CHANGELOG.md "dist/$name/"
@@ -214,7 +214,7 @@ Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
 
 ```sh
 cd dist && sha256sum ./*.tar.gz ./*.zip > SHA256SUMS && cat SHA256SUMS
-gh release upload v0.4.0 ./*.tar.gz ./*.zip SHA256SUMS
+gh release upload v0.5.0 ./*.tar.gz ./*.zip SHA256SUMS
 ```
 
 `packaging/render.sh <version> SHA256SUMS <outdir> [<source-sha256>]` then fills
@@ -227,10 +227,10 @@ a URL which does not exist yet is a broken install for whoever tries first.
 `.deb` and `.rpm` come from the Linux tarball via `packaging/nfpm.yaml.in`:
 
 ```sh
-tar -xzf fq-0.4.0-linux-x86_64.tar.gz
-nfpm package -f /tmp/fq-0.4.0/nfpm.yaml -p deb -t fq_0.4.0_amd64.deb
-nfpm package -f /tmp/fq-0.4.0/nfpm.yaml -p rpm -t fq-0.4.0.x86_64.rpm
-gh release upload v0.4.0 fq_0.4.0_amd64.deb fq-0.4.0.x86_64.rpm
+tar -xzf fq-0.5.0-linux-x86_64.tar.gz
+nfpm package -f /tmp/fq-0.5.0/nfpm.yaml -p deb -t fq_0.5.0_amd64.deb
+nfpm package -f /tmp/fq-0.5.0/nfpm.yaml -p rpm -t fq-0.5.0.x86_64.rpm
+gh release upload v0.5.0 fq_0.5.0_amd64.deb fq-0.5.0.x86_64.rpm
 ```
 
 ## Windows package managers (need a Windows build)
@@ -241,9 +241,9 @@ exists on the release page.
 ### Scoop
 
 ```sh
-# render first: packaging/render.sh 0.4.0 SHA256SUMS /tmp/fq-0.4.0 "$source_sha"
-cp /tmp/fq-0.4.0/scoop/fq.json ../scoop-bucket/bucket/fq.json
-git -C ../scoop-bucket commit -am "fq 0.4.0" && git -C ../scoop-bucket push
+# render first: packaging/render.sh 0.5.0 SHA256SUMS /tmp/fq-0.5.0 "$source_sha"
+cp /tmp/fq-0.5.0/scoop/fq.json ../scoop-bucket/bucket/fq.json
+git -C ../scoop-bucket commit -am "fq 0.5.0" && git -C ../scoop-bucket push
 ```
 
 Users then run `scoop bucket add topce https://github.com/topce/scoop-bucket`
@@ -255,11 +255,11 @@ criteria — propose it there only if the project gets that far.
 ### WinGet
 
 ```sh
-mkdir -p ~/winget-pkgs/manifests/t/Topce/Fq/0.4.0
-cp /tmp/fq-0.4.0/winget/Topce.Fq*.yaml ~/winget-pkgs/manifests/t/Topce/Fq/0.4.0/
+mkdir -p ~/winget-pkgs/manifests/t/Topce/Fq/0.5.0
+cp /tmp/fq-0.5.0/winget/Topce.Fq*.yaml ~/winget-pkgs/manifests/t/Topce/Fq/0.5.0/
 # on Windows: winget validate --manifest <dir>   (or: wingetcreate validate <dir>)
-cd ~/winget-pkgs && git checkout -b topce-fq-0.4.0 \
-  && git add manifests/t/Topce && git commit -m "Add Topce.Fq 0.4.0" \
+cd ~/winget-pkgs && git checkout -b topce-fq-0.5.0 \
+  && git add manifests/t/Topce && git commit -m "Add Topce.Fq 0.5.0" \
   && gh pr create --repo microsoft/winget-pkgs
 ```
 
@@ -274,7 +274,7 @@ A CLI that kills processes has one catastrophic failure mode — killing the
 wrong thing — and a published version cannot be un-downloaded, so anything
 risky goes out in two stages:
 
-1. **Canary**: `gh release create v0.4.0-rc.1 --prerelease --latest=false` (or
+1. **Canary**: `gh release create v0.5.0-rc.1 --prerelease --latest=false` (or
    publish the tag with `--prerelease`). No channel points at a prerelease, so
    only people who look for it see it.
 2. **Verify on real machines** — at least one real Linux desktop session (X11
@@ -302,8 +302,8 @@ sha256sum -c SHA256SUMS
 
 | Situation | Action | Time |
 | --- | --- | --- |
-| Bad tag, nothing published yet | `git push --delete origin v0.4.0 && git tag -d v0.4.0`, fix, re-tag | minutes |
-| Bad release page, no channel updated | `gh release edit v0.4.0 --prerelease` (stops Scoop `autoupdate`), `gh release delete-asset`, publish a fixed patch release | minutes |
+| Bad tag, nothing published yet | `git push --delete origin v0.5.0 && git tag -d v0.5.0`, fix, re-tag | minutes |
+| Bad release page, no channel updated | `gh release edit v0.5.0 --prerelease` (stops Scoop `autoupdate`), `gh release delete-asset`, publish a fixed patch release | minutes |
 | Bad Homebrew formula | `git -C "$(brew --repo topce/fq)" revert HEAD && git -C "$(brew --repo topce/fq)" push` | minutes |
 | Bad AUR package | revert the PKGBUILD commit and push (or delete the package) | minutes |
 | Bad Scoop manifest | revert the bucket commit; users who already installed keep the binary but `scoop update` will not move them further | minutes |
@@ -318,7 +318,7 @@ stage is for.
 
 * **Issues** — label anything about the wrong process being killed as `safety`;
   an open `safety` issue freezes releases until it is fixed.
-* **Downloads** — `gh release view v0.4.0 --json assets --jq '.assets[] | "\(.name) \(.downloadCount)"'`
+* **Downloads** — `gh release view v0.5.0 --json assets --jq '.assets[] | "\(.name) \(.downloadCount)"'`
   shows which platform people actually take, which is the hint about which
   channel deserves attention.
 * **Channel drift** — after publishing a release, check that Homebrew, AUR,
