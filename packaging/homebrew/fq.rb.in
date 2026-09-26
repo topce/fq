@@ -1,5 +1,5 @@
 class Fq < Formula
-  desc "Force-quit applications from the command line, like the Force Quit dialog"
+  desc "Force-quit applications from the command-line, like the Force Quit dialog"
   homepage "https://github.com/topce/fq"
   url "https://github.com/topce/fq/archive/refs/tags/v@VERSION@.tar.gz"
   sha256 "@SHA256_SOURCE_TARBALL@"
